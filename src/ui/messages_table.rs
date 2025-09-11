@@ -21,9 +21,10 @@ const INFO_TEXT: [&str; 2] = [
     "(Esc) back | (r) reload | (c) compose SMS"
 ];
 
+// Pages of 20 items, load next (max-5)
 const ITEM_HEIGHT: usize = 4;
 const LOAD_THRESHOLD: usize = 5;
-const MESSAGES_PER_PAGE: u64 = 10;
+const MESSAGES_PER_PAGE: u64 = 20;
 
 pub struct MessagesView {
     http_client: Arc<HttpClient>,
@@ -80,9 +81,13 @@ impl MessagesView {
             }
             None => &self.current_phone,
         };
-
         if phone.is_empty() {
             return Err(AppError::NoPhoneNumber);
+        }
+
+        // Prevent multiple simultaneous loads
+        if self.is_loading {
+            return Ok(())
         }
 
         // HTTP pagination woo!!!
@@ -97,24 +102,26 @@ impl MessagesView {
 
                 let count = new_messages.len();
                 if count > 0 {
-
                     if self.current_offset == 0 {
+                        // First load, replace messages and select the first item
                         self.messages = new_messages;
                         self.state.select(Some(0));
                     } else {
                         self.messages.extend(new_messages);
                     }
 
-                    // If there is less than a full page, it must be the last.
-                    if count < MESSAGES_PER_PAGE as usize {
-                        self.has_more = false;
-                    }
-
+                    // Update pagination state
                     self.current_offset += MESSAGES_PER_PAGE;
                     self.total_messages = self.messages.len();
                     self.update_constraints();
                     self.scroll_state = ScrollbarState::new((self.messages.len() - 1) * ITEM_HEIGHT);
+
+                    // If there is less than a full page, it must be the last
+                    if count < MESSAGES_PER_PAGE as usize {
+                        self.has_more = false;
+                    }
                 } else {
+                    // No messages sent in page? Last page must have been exactly the MESSAGES_PER_PAGE
                     self.has_more = false;
                 }
 
@@ -178,12 +185,14 @@ impl MessagesView {
     }
 
     async fn check_load_more(&mut self) {
-        if !self.has_more || self.is_loading {
+        // Don't load if already loading, have no more data, or no messages
+        if !self.has_more || self.is_loading || self.messages.is_empty() {
             return;
         }
 
         if let Some(selected) = self.state.selected() {
-            if selected >= self.messages.len().saturating_sub(LOAD_THRESHOLD) {
+            let load_point = self.messages.len().saturating_sub(LOAD_THRESHOLD);
+            if selected >= load_point {
                 let _ = self.load_messages(None).await;
             }
         }
@@ -200,6 +209,8 @@ impl MessagesView {
         if next != current {
             self.state.select(Some(next));
             self.scroll_state = self.scroll_state.position(next * ITEM_HEIGHT);
+
+            // Only check for loading after selection has changed
             self.check_load_more().await;
         }
     }
@@ -372,7 +383,7 @@ impl MessagesView {
         } else if self.is_loading {
             footer_lines.push("⟳ Loading messages...".to_string());
         } else if !phone_number.is_empty() {
-            footer_lines.push(format!("📱 {} | No messages found", phone_number));
+            footer_lines.push(format!("💬 {} | No messages found", phone_number));
         }
 
         let info_footer = Paragraph::new(Text::from(footer_lines.join("\n")))
