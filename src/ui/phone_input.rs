@@ -129,9 +129,9 @@ impl PhoneInputView {
 
         // Controls help
         let help_text = if self.recent_contacts.is_empty() {
-            "Press Enter to confirm, Esc to quit"
+            "(Enter) confirm, (Ctrl+C) quit"
         } else {
-            "Press Enter to confirm, Esc to quit, ↑↓ to select contact"
+            "(Enter) confirm, (Ctrl+C) quit, ↑↓ select contact"
         };
 
         let help = Paragraph::new(help_text)

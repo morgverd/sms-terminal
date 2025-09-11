@@ -9,14 +9,12 @@ use crate::theme::Theme;
 use super::centered_rect;
 
 pub struct SmsInputView {
-    cursor_position: usize,
-    multiline_mode: bool,
+    cursor_position: usize
 }
 impl SmsInputView {
     pub fn new() -> Self {
         Self {
-            cursor_position: 0,
-            multiline_mode: true,
+            cursor_position: 0
         }
     }
 
@@ -68,18 +66,11 @@ impl SmsInputView {
         frame.render_widget(block, area);
 
         let layout = Layout::vertical([
-            Constraint::Length(2),   // Instructions
             Constraint::Min(10),     // Text area
             Constraint::Length(2),   // Character count
             Constraint::Length(2),   // Help text
         ])
             .split(inner);
-
-        // Instructions
-        let instructions = Paragraph::new("Type your message below:")
-            .style(theme.secondary_style())
-            .alignment(Alignment::Left);
-        frame.render_widget(instructions, layout[0]);
 
         // Text area with cursor
         let text_with_cursor = self.render_text_with_cursor(message_text, theme);
@@ -94,7 +85,7 @@ impl SmsInputView {
             .wrap(Wrap { trim: false })
             .scroll((0, 0));
 
-        frame.render_widget(text_area, layout[1]);
+        frame.render_widget(text_area, layout[0]);
 
         // Character counter
         // We can send massive messages since SMS-API supports message concatenation,
@@ -111,19 +102,13 @@ impl SmsInputView {
         let char_counter = Paragraph::new(counter_text)
             .style(counter_style)
             .alignment(Alignment::Right);
-        frame.render_widget(char_counter, layout[2]);
+        frame.render_widget(char_counter, layout[1]);
 
         // Help text
-        let help_text = if self.multiline_mode {
-            "Ctrl+Enter to send | Esc to cancel | Enter for new line"
-        } else {
-            "Enter to send | Esc to cancel | Ctrl+Enter for new line"
-        };
-
-        let help = Paragraph::new(help_text)
+        let help = Paragraph::new("(Esc) cancel | (Enter) new line | (Ctrl+Enter) send")
             .style(theme.secondary_style())
             .alignment(Alignment::Center);
-        frame.render_widget(help, layout[3]);
+        frame.render_widget(help, layout[2]);
     }
 
     fn render_text_with_cursor(&self, text: &str, theme: &Theme) -> Vec<Line<'static>> {

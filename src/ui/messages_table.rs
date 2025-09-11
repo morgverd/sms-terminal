@@ -17,8 +17,8 @@ use crate::types::SmsMessage;
 use super::centered_rect;
 
 const INFO_TEXT: [&str; 2] = [
-    "(Esc) quit | (↑/↓) navigate | (←/→) columns | (Enter) select",
-    "(Shift+T) change theme | (r) reload | (n) new number | (c) compose SMS"
+    "(↑/↓) navigate | (←/→) columns",
+    "(Esc) back | (r) reload | (c) compose SMS"
 ];
 
 const ITEM_HEIGHT: usize = 4;
@@ -364,7 +364,7 @@ impl MessagesView {
             };
 
             footer_lines.push(format!(
-                "🔹 {} | 📨 {} messages loaded | {}",
+                "💬 {} | ✉️ {} messages loaded | {}",
                 phone_number,
                 self.total_messages,
                 status
