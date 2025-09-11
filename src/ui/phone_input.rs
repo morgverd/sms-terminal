@@ -1,0 +1,167 @@
+use ratatui::layout::{Alignment, Constraint, Layout};
+use ratatui::style::{Color, Style};
+use ratatui::widgets::{Block, BorderType, Clear, List, ListItem, Paragraph};
+use ratatui::Frame;
+
+use crate::theme::Theme;
+use super::centered_rect;
+
+pub struct PhoneInputView {
+    recent_contacts: Vec<(String, String)>, // (phone, name)
+    selected_contact: Option<usize>
+}
+impl PhoneInputView {
+    pub fn new() -> Self {
+
+        // TODO: Fetch the latest contacts from client!
+        let recent_contacts = vec![];
+        Self {
+            recent_contacts,
+            selected_contact: None
+        }
+    }
+
+    /// TODO: Websocket integration!
+    pub fn update_recent_contacts(&mut self, contacts: Vec<(String, String)>) {
+        self.recent_contacts = contacts;
+
+        // Reset selection if OOB
+        if let Some(selected) = self.selected_contact {
+            if selected >= self.recent_contacts.len() {
+                self.selected_contact = None;
+            }
+        }
+    }
+
+    pub fn select_next(&mut self) {
+        if self.recent_contacts.is_empty() {
+            return;
+        }
+
+        match self.selected_contact {
+            None => self.selected_contact = Some(0),
+            Some(i) => {
+                self.selected_contact = Some((i + 1) % self.recent_contacts.len());
+            }
+        }
+    }
+
+    pub fn select_previous(&mut self) {
+        if self.recent_contacts.is_empty() {
+            return;
+        }
+
+        match self.selected_contact {
+            None => self.selected_contact = Some(self.recent_contacts.len() - 1),
+            Some(0) => self.selected_contact = Some(self.recent_contacts.len() - 1),
+            Some(i) => self.selected_contact = Some(i - 1),
+        }
+    }
+
+    pub fn get_selected_phone(&self) -> Option<String> {
+        self.selected_contact
+            .and_then(|i| self.recent_contacts.get(i))
+            .map(|(phone, _)| phone.clone())
+    }
+
+    pub fn clear_selection(&mut self) {
+        self.selected_contact = None;
+    }
+
+    pub fn render(&self, frame: &mut Frame, input_buffer: &str, theme: &Theme) {
+        let area = centered_rect(50, 35, frame.area());
+        frame.render_widget(Clear, area);
+
+        let block = Block::bordered()
+            .title(" Enter Phone Number ")
+            .title_alignment(Alignment::Center)
+            .border_type(BorderType::Rounded)
+            .border_style(theme.border_style());
+
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
+
+        let mut constraints = vec![
+            Constraint::Length(1),   // Prompt
+            Constraint::Length(3),   // Input box
+            Constraint::Length(1),   // Help text
+        ];
+        if !self.recent_contacts.is_empty() {
+            constraints.push(Constraint::Length(1)); // Spacing
+            constraints.push(Constraint::Length(1)); // Recent contacts header
+
+            // Get height for contacts box
+            let contacts_height = std::cmp::min(self.recent_contacts.len(), 8) as u16;
+            constraints.push(Constraint::Length(contacts_height));
+        }
+        let layout = Layout::vertical(constraints).split(inner);
+
+        // Prompt
+        let prompt = Paragraph::new("Phone number (international format):")
+            .style(theme.secondary_style());
+        frame.render_widget(prompt, layout[0]);
+
+        // Input box
+        let input_text = if input_buffer.is_empty() {
+            "+1234567890"
+        } else {
+            input_buffer
+        };
+
+        // If there is no text, mute the text box.
+        let input_style = if input_buffer.is_empty() {
+            Style::default().fg(theme.text_muted)
+        } else {
+            theme.input_style()
+        };
+
+        let input = Paragraph::new(input_text)
+            .style(input_style)
+            .block(
+                Block::bordered()
+                    .border_style(if input_buffer.is_empty() {
+                        theme.border_style()
+                    } else {
+                        theme.border_focused_style()
+                    })
+            );
+        frame.render_widget(input, layout[1]);
+
+        // Controls help
+        let help_text = if self.recent_contacts.is_empty() {
+            "Press Enter to confirm, Esc to quit"
+        } else {
+            "Press Enter to confirm, Esc to quit, ↑↓ to select contact"
+        };
+
+        let help = Paragraph::new(help_text)
+            .style(Style::default().fg(theme.text_muted))
+            .alignment(Alignment::Center);
+        frame.render_widget(help, layout[2]);
+
+        // Recent contacts section, if there are some
+        if !self.recent_contacts.is_empty() {
+            let header = Paragraph::new("Recent Contacts:")
+                .style(theme.secondary_style());
+            frame.render_widget(header, layout[4]);
+
+            let items: Vec<ListItem> = self.recent_contacts
+                .iter()
+                .enumerate()
+                .take(8) // Limit to max 8 items
+                .map(|(i, (phone, name))| {
+                    let content = format!("{}  {}", phone, name);
+                    let style = if Some(i) == self.selected_contact {
+                        Style::default().bg(theme.text_accent).fg(Color::Black)
+                    } else {
+                        Style::default().fg(theme.text_muted)
+                    };
+                    ListItem::new(content).style(style)
+                })
+                .collect();
+
+            let list = List::new(items);
+            frame.render_widget(list, layout[5]);
+        }
+    }
+}

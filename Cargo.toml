@@ -1,0 +1,17 @@
+[package]
+name = "sms-terminal"
+version = "0.1.0"
+description = "SMS message viewer terminal"
+authors = ["morgverd <morgverd@gmail.com>"]
+license = "MIT"
+edition = "2024"
+
+[dependencies]
+sms-client = { git = "https://github.com/morgverd/sms-client.git" }
+color-eyre = "0.6.3"
+crossterm = { version = "0.29.0", features = ["event-stream"] }
+ratatui = "0.29.0"
+tokio = { version = "1.40.0", features = ["rt-multi-thread", "macros"] }
+unicode-width = "0.2"
+chrono = "0.4.42"
+textwrap = "0.16.2"
