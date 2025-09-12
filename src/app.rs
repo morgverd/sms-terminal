@@ -93,10 +93,7 @@ impl App {
 
                             // Attempt to transition app state, otherwise show an error.
                             if let Err(e) = self.transition_state(state).await {
-                                self.app_state = AppState::Error {
-                                    message: e.to_string(),
-                                    dismissible: false
-                                }
+                                self.app_state = AppState::from(e);
                             }
                         },
                         Some(KeyResponse::Quit) => return Ok(()),
@@ -109,8 +106,8 @@ impl App {
 
     async fn transition_state(&mut self, new_state: AppState) -> AppResult<()> {
         match &new_state {
-            AppState::ViewMessages(phone_number) => self.messages_view.load_messages(phone_number).await?,
-            AppState::ComposeSms(_) => self.sms_input_view.reset(),
+            AppState::ViewMessages(phone_number) => self.messages_view.reload(phone_number).await?,
+            AppState::ComposeSms(_) => self.sms_input_view.reload(),
             _ => { }
         };
 
@@ -215,7 +212,7 @@ impl App {
                     let mut show_notification = true;
                     if let AppState::ViewMessages(current_phone) = &self.app_state {
                         if current_phone == sms_message.phone_number.as_str() {
-                            self.messages_view.add_live_message(msg.clone(), current_phone);
+                            self.messages_view.add_live_message(msg.clone());
                             show_notification = false;
                         }
                     }

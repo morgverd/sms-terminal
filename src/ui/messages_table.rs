@@ -2,7 +2,7 @@ use ratatui::layout::{Constraint, Layout, Margin, Rect};
 use ratatui::style::{Modifier, Style, Stylize};
 use ratatui::text::{Line, Text};
 use ratatui::widgets::{
-    Block, BorderType, Cell, Clear, HighlightSpacing, Paragraph, Row, Scrollbar,
+    Block, BorderType, Cell, HighlightSpacing, Paragraph, Row, Scrollbar,
     ScrollbarOrientation, ScrollbarState, Table, TableState,
 };
 use ratatui::Frame;
@@ -15,7 +15,6 @@ use unicode_width::UnicodeWidthStr;
 use crate::error::{AppError, AppResult};
 use crate::theme::Theme;
 use crate::types::{AppState, KeyResponse, SmsMessage};
-use super::centered_rect;
 
 const INFO_TEXT: [&str; 2] = [
     "(↑/↓) navigate | (←/→) columns",
@@ -36,9 +35,7 @@ pub struct MessagesTableView {
     is_loading: bool,
     has_more: bool,
     current_offset: u64,
-    total_messages: usize,
-    error_message: Option<String>,
-    last_loaded_phone: Option<String>,
+    total_messages: usize
 }
 impl MessagesTableView {
     pub fn new(http_client: Arc<HttpClient>) -> Self {
@@ -51,98 +48,131 @@ impl MessagesTableView {
             is_loading: false,
             has_more: true,
             current_offset: 0,
-            total_messages: 0,
-            error_message: None,
-            last_loaded_phone: None,
+            total_messages: 0
         }
     }
 
-    /// Load the next set of messages for the given phone number
-    pub async fn load_messages(&mut self, phone_number: &str) -> AppResult<()> {
+    pub async fn reload(&mut self, phone_number: &str) -> AppResult<()> {
+        self.reset();
+        self.load_messages(phone_number).await
+    }
+
+    pub fn add_live_message(&mut self, message: SmsMessage) {
+        if self.messages.iter().any(|m| m.id == message.id) {
+            return;
+        }
+
+        self.messages.insert(0, message);
+        self.total_messages = self.messages.len();
+        self.update_constraints();
+        self.scroll_state = ScrollbarState::new((self.messages.len() - 1) * ITEM_HEIGHT);
+    }
+
+    pub async fn handle_key(&mut self, key: KeyEvent, phone_number: &str) -> Option<KeyResponse> {
+        match key.code {
+            KeyCode::Esc => {
+                self.reset();
+                return Some(KeyResponse::SetAppState(AppState::InputPhone));
+            },
+            KeyCode::Char('c') => {
+                let state = AppState::ComposeSms(phone_number.to_string());
+                return Some(KeyResponse::SetAppState(state));
+            },
+            KeyCode::Char('r') => {
+                match self.reload(phone_number).await {
+                    Ok(()) => {},
+                    Err(e) => {
+                        let state = AppState::Error { message: e.to_string(), dismissible: true };
+                        return Some(KeyResponse::SetAppState(state));
+                    }
+                }
+            },
+            KeyCode::Down => {
+                self.next_row().await;
+
+                // Check if we need to load more after moving
+                if let Err(e) = self.check_load_more(phone_number).await {
+                    return Some(KeyResponse::SetAppState(AppState::from(e)));
+                }
+            },
+            KeyCode::Up => {
+                self.previous_row().await;
+            },
+            KeyCode::Right => {
+                self.next_column();
+            },
+            KeyCode::Left => {
+                self.previous_column();
+            },
+            _ => {}
+        }
+
+        None
+    }
+
+    pub fn render(&mut self, frame: &mut Frame, phone_number: &str, theme: &Theme) {
+        let layout = Layout::vertical([Constraint::Min(5), Constraint::Length(5)]);
+        let rects = layout.split(frame.area());
+
+        self.render_table(frame, rects[0], theme);
+        self.render_scrollbar(frame, rects[0]);
+        self.render_footer(frame, rects[1], phone_number, theme);
+    }
+
+    fn reset(&mut self) {
+        self.current_offset = 0;
+        self.has_more = true;
+        self.messages.clear();
+        self.state = TableState::default();
+    }
+
+    async fn load_messages(&mut self, phone_number: &str) -> AppResult<()> {
         if phone_number.is_empty() {
             return Err(AppError::NoPhoneNumber);
         }
-
-        // If phone number changed, reset everything
-        if self.last_loaded_phone.as_ref() != Some(&phone_number.to_string()) {
-            self.reset_for_new_phone();
-            self.last_loaded_phone = Some(phone_number.to_string());
-        }
-
-        // Prevent multiple simultaneous loads
         if self.is_loading {
             return Ok(());
         }
 
-        // HTTP pagination
         let pagination = HttpPaginationOptions::default()
             .with_limit(MESSAGES_PER_PAGE)
             .with_offset(self.current_offset);
 
         self.is_loading = true;
-        match self.http_client.as_ref().get_messages(phone_number, Some(pagination)).await {
+        let result = self.http_client.as_ref().get_messages(phone_number, Some(pagination)).await;
+        self.is_loading = false;
+
+        match result {
             Ok(messages) => {
                 let new_messages: Vec<SmsMessage> = messages.iter().map(SmsMessage::from).collect();
 
                 let count = new_messages.len();
                 if count > 0 {
-                    if self.current_offset == 0 {
-                        // First load, replace messages and select the first item
-                        self.messages = new_messages;
-                        self.state.select(Some(0));
-                    } else {
-                        self.messages.extend(new_messages);
-                    }
-
-                    // Update pagination state
-                    self.current_offset += MESSAGES_PER_PAGE;
-                    self.total_messages = self.messages.len();
-                    self.update_constraints();
-                    self.scroll_state = ScrollbarState::new((self.messages.len() - 1) * ITEM_HEIGHT);
-
-                    // If there is less than a full page, it must be the last
-                    if count < MESSAGES_PER_PAGE as usize {
-                        self.has_more = false;
-                    }
-                } else {
-                    // No messages sent in page? Last page must have been exactly the MESSAGES_PER_PAGE
-                    self.has_more = false;
+                    self.handle_new_messages(new_messages);
                 }
 
-                self.is_loading = false;
-                self.error_message = None;
+                // If there is still a full page, there could be more results
+                self.has_more = count == MESSAGES_PER_PAGE as usize;
                 Ok(())
             }
-            Err(e) => {
-                self.is_loading = false;
-                let error_msg = format!("Failed to load messages: {}", e);
-                self.error_message = Some(error_msg);
-                Err(AppError::HttpError(e.to_string()))
-            }
+            Err(e) => Err(AppError::HttpError(format!("Failed to load messages: {}", e)))
         }
     }
 
-    pub async fn reload(&mut self, phone_number: &str) -> AppResult<()> {
-        self.reset_pagination();
-        self.load_messages(phone_number).await
-    }
+    fn handle_new_messages(&mut self, new_messages: Vec<SmsMessage>) {
+        if self.current_offset == 0 {
+            // First load, replace messages and select the first item
+            self.messages = new_messages;
+            self.state.select(Some(0));
+        } else {
+            self.messages.extend(new_messages);
+        }
 
-    pub fn reset(&mut self) {
-        self.reset_pagination();
-        self.last_loaded_phone = None;
-    }
-
-    fn reset_for_new_phone(&mut self) {
-        self.reset_pagination();
-        // Don't clear last_loaded_phone here as it's managed by the caller
-    }
-
-    fn reset_pagination(&mut self) {
-        self.current_offset = 0;
-        self.has_more = true;
-        self.messages.clear();
-        self.error_message = None;
-        self.state = TableState::default();
+        // Update pagination state
+        self.current_offset += MESSAGES_PER_PAGE;
+        self.total_messages = self.messages.len();
+        self.update_constraints();
+        self.scroll_state = ScrollbarState::new((self.messages.len() - 1) * ITEM_HEIGHT);
     }
 
     fn update_constraints(&mut self) {
@@ -173,7 +203,7 @@ impl MessagesTableView {
         );
     }
 
-    pub async fn check_load_more(&mut self, phone_number: &str) -> AppResult<()> {
+    async fn check_load_more(&mut self, phone_number: &str) -> AppResult<()> {
         // Don't load if already loading, have no more data, or no messages
         if !self.has_more || self.is_loading || self.messages.is_empty() {
             return Ok(());
@@ -188,7 +218,7 @@ impl MessagesTableView {
         Ok(())
     }
 
-    pub async fn next_row(&mut self) {
+    async fn next_row(&mut self) {
         if self.messages.is_empty() {
             return;
         }
@@ -202,7 +232,7 @@ impl MessagesTableView {
         }
     }
 
-    pub async fn previous_row(&mut self) {
+    async fn previous_row(&mut self) {
         if self.messages.is_empty() {
             return;
         }
@@ -216,86 +246,12 @@ impl MessagesTableView {
         }
     }
 
-    pub fn next_column(&mut self) {
+    fn next_column(&mut self) {
         self.state.select_next_column();
     }
 
-    pub fn previous_column(&mut self) {
+    fn previous_column(&mut self) {
         self.state.select_previous_column();
-    }
-
-    pub fn add_live_message(&mut self, message: SmsMessage, phone_number: &str) {
-        // Only add if this view is for the same phone number
-        if self.last_loaded_phone.as_ref() != Some(&phone_number.to_string()) {
-            return;
-        }
-
-        if self.messages.iter().any(|m| m.id == message.id) {
-            return;
-        }
-
-        self.messages.insert(0, message);
-        self.total_messages = self.messages.len();
-        self.update_constraints();
-        self.scroll_state = ScrollbarState::new((self.messages.len() - 1) * ITEM_HEIGHT);
-    }
-
-    pub fn set_error_message(&mut self, error: Option<String>) {
-        self.error_message = error;
-    }
-
-    pub async fn handle_key(&mut self, key: KeyEvent, phone_number: &str) -> Option<KeyResponse> {
-        match key.code {
-            KeyCode::Esc => {
-                self.reset();
-                return Some(KeyResponse::SetAppState(AppState::InputPhone));
-            },
-            KeyCode::Char('c') => {
-                let state = AppState::ComposeSms(phone_number.to_string());
-                return Some(KeyResponse::SetAppState(state));
-            },
-            KeyCode::Char('r') => {
-                match self.reload(phone_number).await {
-                    Ok(()) => {},
-                    Err(e) => {
-                        let state = AppState::Error { message: e.to_string(), dismissible: true };
-                        return Some(KeyResponse::SetAppState(state));
-                    }
-                }
-            },
-            KeyCode::Down => {
-                self.next_row().await;
-                // Check if we need to load more after moving
-                if let Err(e) = self.check_load_more(phone_number).await {
-                    self.set_error_message(Some(e.to_string()));
-                }
-            },
-            KeyCode::Up => {
-                self.previous_row().await;
-            },
-            KeyCode::Right => {
-                self.next_column();
-            },
-            KeyCode::Left => {
-                self.previous_column();
-            },
-            _ => {}
-        }
-
-        None
-    }
-
-    pub fn render(&mut self, frame: &mut Frame, phone_number: &str, theme: &Theme) {
-        let layout = Layout::vertical([Constraint::Min(5), Constraint::Length(5)]);
-        let rects = layout.split(frame.area());
-
-        self.render_table(frame, rects[0], theme);
-        self.render_scrollbar(frame, rects[0]);
-        self.render_footer(frame, rects[1], phone_number, theme);
-
-        if let Some(ref error) = self.error_message {
-            self.render_error_popup(frame, error, theme);
-        }
     }
 
     fn render_table(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
@@ -415,24 +371,5 @@ impl MessagesTableView {
                     .border_style(theme.border_focused_style()),
             );
         frame.render_widget(info_footer, area);
-    }
-
-    fn render_error_popup(&self, frame: &mut Frame, error: &str, theme: &Theme) {
-        let area = centered_rect(60, 20, frame.area());
-
-        frame.render_widget(Clear, area);
-
-        let block = Block::bordered()
-            .title(" Error ")
-            .title_alignment(ratatui::layout::Alignment::Center)
-            .border_type(BorderType::Thick)
-            .border_style(theme.error_style());
-
-        let error_text = Paragraph::new(error)
-            .style(theme.error_style())
-            .wrap(ratatui::widgets::Wrap { trim: true })
-            .block(block);
-
-        frame.render_widget(error_text, area);
     }
 }

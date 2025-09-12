@@ -1,15 +1,13 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use ratatui::layout::{Alignment, Constraint, Layout, Rect};
+use ratatui::layout::{Alignment, Constraint, Layout};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Clear, Paragraph, Wrap};
 use ratatui::Frame;
-use ratatui::prelude::Color;
 use ratatui::style::palette::tailwind;
 
 use crate::theme::Theme;
 use crate::types::{AppState, KeyResponse};
-use crate::ui::notification::NotificationType;
 use super::centered_rect;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -32,44 +30,10 @@ impl SmsInputView {
         }
     }
 
-    fn move_cursor_left(&mut self) {
-        self.cursor_position = self.cursor_position.saturating_sub(1);
-    }
-
-    fn move_cursor_right(&mut self, text_len: usize) {
-        if self.cursor_position < text_len {
-            self.cursor_position += 1;
-        }
-    }
-
-    fn move_cursor_to_start(&mut self) {
+    pub fn reload(&mut self) {
         self.cursor_position = 0;
-    }
-
-    fn move_cursor_to_end(&mut self, text_len: usize) {
-        self.cursor_position = text_len;
-    }
-
-    fn is_confirming(&self) -> bool {
-        matches!(self.confirmation_state, ConfirmationState::Confirming { .. })
-    }
-
-    fn show_confirmation(&mut self) {
-        self.confirmation_state = ConfirmationState::Confirming { selected_yes: false };
-    }
-
-    fn hide_confirmation(&mut self) {
-        self.confirmation_state = ConfirmationState::None;
-    }
-
-    fn toggle_confirmation_selection(&mut self) {
-        if let ConfirmationState::Confirming { selected_yes } = &mut self.confirmation_state {
-            *selected_yes = !*selected_yes;
-        }
-    }
-    
-    pub fn reset(&mut self) {
-        self.cursor_position = 0;
+        self.sms_text_buffer.clear();
+        self.hide_confirmation();
     }
 
     pub fn handle_key(&mut self, key: KeyEvent, phone_number: &str) -> Option<KeyResponse> {
@@ -85,14 +49,7 @@ impl SmsInputView {
                 KeyCode::Enter => {
                     if matches!(self.confirmation_state, ConfirmationState::Confirming { selected_yes: true }) {
 
-                        // TODO: Actually send the message!
-                        // let notification = NotificationType::GenericMessage {
-                        //     color: Color::Green,
-                        //     title: "SMS Sent (not really)".to_string(),
-                        //     message: self.sms_text_buffer.clone(),
-                        // };
-                        // self.notification_view.add_notification(notification);
-
+                        // TODO: Actually send the SMS message!
                         let state = AppState::ViewMessages(phone_number.to_string());
                         return Some(KeyResponse::SetAppState(state));
                     }
@@ -221,6 +178,42 @@ impl SmsInputView {
         // Render confirmation dialog if active
         if self.is_confirming() {
             self.render_confirmation_dialog(frame, theme);
+        }
+    }
+
+    fn move_cursor_left(&mut self) {
+        self.cursor_position = self.cursor_position.saturating_sub(1);
+    }
+
+    fn move_cursor_right(&mut self, text_len: usize) {
+        if self.cursor_position < text_len {
+            self.cursor_position += 1;
+        }
+    }
+
+    fn move_cursor_to_start(&mut self) {
+        self.cursor_position = 0;
+    }
+
+    fn move_cursor_to_end(&mut self, text_len: usize) {
+        self.cursor_position = text_len;
+    }
+
+    fn is_confirming(&self) -> bool {
+        matches!(self.confirmation_state, ConfirmationState::Confirming { .. })
+    }
+
+    fn show_confirmation(&mut self) {
+        self.confirmation_state = ConfirmationState::Confirming { selected_yes: false };
+    }
+
+    fn hide_confirmation(&mut self) {
+        self.confirmation_state = ConfirmationState::None;
+    }
+
+    fn toggle_confirmation_selection(&mut self) {
+        if let ConfirmationState::Confirming { selected_yes } = &mut self.confirmation_state {
+            *selected_yes = !*selected_yes;
         }
     }
 

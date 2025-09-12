@@ -4,6 +4,7 @@ use sms_client::types::SmsStoredMessage;
 use std::time::{Duration, Instant};
 use ansi_escape_sequences::strip_ansi;
 use unicode_general_category::{get_general_category, GeneralCategory};
+use crate::error::AppError;
 
 /// A shortened version of a StoredSmsMessage that only
 /// stores the information used in messages_table.
@@ -60,7 +61,16 @@ pub enum AppState {
         dismissible: bool
     }
 }
+impl From<AppError> for AppState {
+    fn from(error: AppError) -> Self {
+        AppState::Error {
+            message: error.to_string(),
+            dismissible: false
+        }
+    }
+}
 
+/// Returned by a View key_handler to do some app action.
 pub enum KeyResponse {
     SetAppState(AppState),
     Quit
