@@ -25,7 +25,8 @@ pub enum NotificationType {
     WebSocketConnectionUpdate {
         connected: bool,
         reconnect: bool
-    }
+    },
+    WebSocketDisabled
 }
 
 #[derive(Clone)]
@@ -39,7 +40,8 @@ impl NotificationMessage {
             NotificationType::IncomingMessage { phone, .. } => Some(phone.clone()),
             NotificationType::SendFailure { phone, .. } => Some(phone.clone()),
             NotificationType::OnlineStatus { .. } => None,
-            NotificationType::WebSocketConnectionUpdate { .. } => None
+            NotificationType::WebSocketConnectionUpdate { .. } => None,
+            NotificationType::WebSocketDisabled => None
         }
     }
 
@@ -102,9 +104,9 @@ impl NotificationView {
     }
 
     /// Remove the first notification after jumping to it.
-    pub fn dismiss_first(&mut self) {
+    pub fn dismiss_all(&mut self) {
         if !self.notifications.is_empty() {
-            self.notifications.remove(0);
+            self.notifications.clear();
         }
     }
 
@@ -163,6 +165,12 @@ impl NotificationView {
                     border_color: color,
                     title_color: color
                 }
+            },
+            NotificationType::WebSocketDisabled => NotificationStyle {
+                icon: "❌",
+                title: "WebSocket Disabled",
+                border_color: Color::Yellow,
+                title_color: Color::Yellow
             }
         }
     }
@@ -210,7 +218,8 @@ impl NotificationView {
             },
             NotificationType::OnlineStatus { .. } => 3,
             NotificationType::SendFailure { .. } => unimplemented!(),
-            NotificationType::WebSocketConnectionUpdate { .. } => 3
+            NotificationType::WebSocketConnectionUpdate { .. } => 3,
+            NotificationType::WebSocketDisabled => 3
         };
 
         // Add extra height for empty line separator and controls hint if it's the top notification.
@@ -300,6 +309,9 @@ impl NotificationView {
                     (false, false) => "WebSocket connection lost",
                 };
                 lines.push(Line::from(Span::styled(status_text.to_string(), base_style)));
+            },
+            NotificationType::WebSocketDisabled => {
+                lines.push(Line::from(Span::styled("Live updates will not show!", base_style)));
             }
         }
 

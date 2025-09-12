@@ -21,19 +21,17 @@ impl SmsMessage {
 }
 impl From<&SmsStoredMessage> for SmsMessage {
     fn from(value: &SmsStoredMessage) -> Self {
-        let timestamp = if let Some(timestamp) = value.completed_at.or(value.created_at) {
-            match Local.timestamp_opt(timestamp as i64, 0).single() {
-                Some(dt) => dt.format("%d/%m/%y %H:%M").to_string(),
-                None => "Invalid Date".to_string(),
-            }
-        } else {
-            "Unknown!".to_string()
-        };
+
+        // Get datetime from timestamp value, or local time if unset / invalid.
+        let dt = value.completed_at.or(value.created_at)
+            .map(|t| Local.timestamp_opt(t as i64, 0).single())
+            .flatten()
+            .unwrap_or_else(|| Local::now());
 
         Self {
             id: value.message_id.to_string(),
             direction: if value.is_outgoing { "← OUT" } else { "→ IN" }.to_string(),
-            timestamp,
+            timestamp: dt.format("%d/%m/%y %H:%M").to_string(),
 
             // Remove all control characters from being displayed.
             // This includes newlines etc.

@@ -33,13 +33,13 @@ pub struct App {
     key_debouncer: KeyDebouncer,
     theme_manager: ThemeManager,
     phone_input_view: PhoneInputView,
-    messages_view: Arc<RwLock<MessagesTableView>>,
-    sms_input_view: Arc<RwLock<SmsInputView>>,
+    messages_view: MessagesTableView,
+    sms_input_view: SmsInputView,
     error_view: ErrorView,
     notification_view: NotificationView,
     message_receiver: mpsc::UnboundedReceiver<LiveMessage>,
     message_sender: mpsc::UnboundedSender<LiveMessage>,
-    sms_client: Client
+    sms_client: Option<Client>
 }
 impl App {
     pub fn new(config: TerminalConfig) -> Result<Self> {
@@ -54,18 +54,25 @@ impl App {
             key_debouncer: KeyDebouncer::new(DEBOUNCE_DURATION),
             theme_manager: ThemeManager::with_preset(config.theme),
             phone_input_view: PhoneInputView::new(),
-            messages_view: Arc::new(RwLock::new(MessagesTableView::new(client.http_arc()))),
-            sms_input_view: Arc::new(RwLock::new(SmsInputView::new())),
+            messages_view: MessagesTableView::new(client.http_arc()),
+            sms_input_view: SmsInputView::new(),
             error_view: ErrorView::new(),
             notification_view: NotificationView::new(),
             message_receiver: rx,
             message_sender: tx,
-            sms_client: client
+            sms_client: config.websocket.then(|| client)
         })
     }
 
     pub async fn run(mut self, mut terminal: DefaultTerminal) -> Result<()> {
-        self.spawn_live_message_listener().await;
+        if let Some(client) = &self.sms_client {
+            self.start_sms_websocket(client).await;
+        } else {
+
+            // Show a notification informing the user that their websocket
+            // is disabled and therefore live updates will not work.
+            self.notification_view.add_notification(NotificationType::WebSocketDisabled);
+        }
 
         loop {
             terminal.draw(|frame| self.render(frame))?;
@@ -86,50 +93,27 @@ impl App {
         }
     }
 
-    async fn spawn_live_message_listener(&self) {
+    async fn start_sms_websocket(&self, client: &Client) {
         let sender = self.message_sender.clone();
-        self.sms_client
-            .on_message_simple(move |message| {
-                match message {
-                    WebsocketMessage::IncomingMessage(sms) | WebsocketMessage::OutgoingMessage(sms) => {
-                        let _ = sender.send(LiveMessage::NewMessage(sms));
-                    },
-                    WebsocketMessage::ModemStatusUpdate { previous, current } => {
-                        let _ = sender.send(LiveMessage::ModemStatusUpdate(previous, current));
-                    },
-                    WebsocketMessage::WebsocketConnectionUpdate { connected, reconnect } => {
-                        let _ = sender.send(LiveMessage::WebSocketConnectionUpdate(connected, reconnect));
-                    }
-                    _ => { }
+        client.on_message_simple(move |message| {
+            match message {
+                WebsocketMessage::IncomingMessage(sms) | WebsocketMessage::OutgoingMessage(sms) => {
+                    let _ = sender.send(LiveMessage::NewMessage(sms));
+                },
+                WebsocketMessage::ModemStatusUpdate { previous, current } => {
+                    let _ = sender.send(LiveMessage::ModemStatusUpdate(previous, current));
+                },
+                WebsocketMessage::WebsocketConnectionUpdate { connected, reconnect } => {
+                    let _ = sender.send(LiveMessage::WebSocketConnectionUpdate(connected, reconnect));
                 }
-            })
-            .await
-            .expect("Failed to create websocket listener!");
+                _ => { }
+            }
+        })
+        .await
+        .expect("Failed to create websocket listener!");
 
-        self.sms_client.start_background_websocket().await.expect("Failed to start websocket!");
-
-        // tokio::spawn(async move {
-        //     tokio::time::sleep(std::time::Duration::from_secs(10)).await;
-        //     let _ = sender.send(LiveMessage::WebSocketConnectionUpdate(true, false));
-        //
-        //     let mut i = 0;
-        //     // loop {
-        //         tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-        //         let msg = SmsStoredMessage {
-        //             message_id: 110 + i,
-        //             phone_number: "2732".to_string(),
-        //             message_content: "Your balance is £0.00, Your total remaining bundle allowance is unlimited minutes, unlimited sms and 0 MB of data".to_string(),
-        //             message_reference: None,
-        //             is_outgoing: false,
-        //             status: "GoodLike".to_string(),
-        //             created_at: None,
-        //             completed_at: None,
-        //         };
-        //
-        //         let _ = sender.send(LiveMessage::NewMessage(msg));
-        //     //     i = i + 1;
-        //     // }
-        // });
+        // Finally start non-blocking SMS client.
+        client.start_background_websocket().await.expect("Failed to start websocket!");
     }
 
     fn process_live_messages(&mut self) {
@@ -137,22 +121,25 @@ impl App {
             match msg {
                 LiveMessage::NewMessage(sms_message) => {
 
-                    // Show a notification for incoming SMS messages.
-                    // Use the SMSMessage variant for content as it's sanitized.
-                    let msg = SmsMessage::from(&sms_message);
-                    if !sms_message.is_outgoing {
-                        let notification = NotificationType::IncomingMessage {
-                            phone: sms_message.phone_number.clone(),
-                            content: msg.content.clone()
-                        };
-                        self.notification_view.add_notification(notification);
-                    }
-
                     // Only add the message if we're viewing messages for the same phone number.
+                    let msg = SmsMessage::from(&sms_message);
+                    let mut show_notification = true;
                     if let AppState::ViewMessages(current_phone) = &self.app_state {
                         if current_phone == sms_message.phone_number.as_str() {
-                            self.messages_view.write().unwrap().add_live_message(msg, current_phone);
+                            self.messages_view.add_live_message(msg.clone(), current_phone);
+                            show_notification = false;
                         }
+                    }
+
+                    // Show a notification for incoming SMS messages.
+                    // Use the SMSMessage variant for content as it's sanitized.
+                    // Do not show the notification if we're already viewing those messages.
+                    if show_notification && !sms_message.is_outgoing {
+                        let notification = NotificationType::IncomingMessage {
+                            phone: sms_message.phone_number.clone(),
+                            content: msg.content
+                        };
+                        self.notification_view.add_notification(notification);
                     }
                 },
                 LiveMessage::ModemStatusUpdate(previous, current) => {
@@ -170,13 +157,12 @@ impl App {
 
     async fn handle_state_transitions(&mut self) {
         if let AppState::ViewMessages(phone_number) = &self.app_state {
-            let should_load = {
-                let view = self.messages_view.read().unwrap();
-                view.should_load_initial(phone_number)
-            };
 
-            if should_load {
-                match self.messages_view.write().unwrap().load_messages(phone_number).await {
+            // Only load the initial batch of messages after a state change
+            // if there are no messages already loaded (prevents returning to
+            // this state double loading messages).
+            if self.messages_view.should_load_initial(phone_number) {
+                match self.messages_view.load_messages(phone_number).await {
                     Ok(()) => {},
                     Err(e) => {
                         self.app_state = AppState::Error(e.to_string());
@@ -205,7 +191,6 @@ impl App {
         if self.notification_view.has_notifications() {
             match key.code {
                 KeyCode::Char(' ') => {
-                    // Dismiss all notifications
                     self.notification_view.dismiss_oldest();
                     return false;
                 },
@@ -215,7 +200,7 @@ impl App {
                         .filter(|n| n.can_view())
                         .and_then(|n| n.get_phone_number())
                     {
-                        self.notification_view.dismiss_first();
+                        self.notification_view.dismiss_all();
                         self.app_state = AppState::ViewMessages(phone_number);
                         self.key_debouncer.reset();
                         return false;
@@ -285,15 +270,15 @@ impl App {
                 self.input_buffer.clear();
                 self.app_state = AppState::InputPhone;
                 self.key_debouncer.reset();
-                self.messages_view.write().unwrap().reset();
+                self.messages_view.reset();
             },
             KeyCode::Char('c') => {
                 self.sms_text_buffer.clear();
                 self.app_state = AppState::ComposeSms(phone_number.to_string());
-                self.sms_input_view.write().unwrap().set_cursor_position(0, 0);
+                self.sms_input_view.set_cursor_position(0, 0);
             },
             KeyCode::Char('r') => {
-                match self.messages_view.write().unwrap().reload(phone_number).await {
+                match self.messages_view.reload(phone_number).await {
                     Ok(()) => {},
                     Err(e) => {
                         self.app_state = AppState::Error(e.to_string());
@@ -301,20 +286,20 @@ impl App {
                 }
             },
             KeyCode::Down => {
-                self.messages_view.write().unwrap().next_row().await;
+                self.messages_view.next_row().await;
                 // Check if we need to load more after moving
-                if let Err(e) = self.messages_view.write().unwrap().check_load_more(phone_number).await {
-                    self.messages_view.write().unwrap().set_error_message(Some(e.to_string()));
+                if let Err(e) = self.messages_view.check_load_more(phone_number).await {
+                    self.messages_view.set_error_message(Some(e.to_string()));
                 }
             },
             KeyCode::Up => {
-                self.messages_view.write().unwrap().previous_row().await;
+                self.messages_view.previous_row().await;
             },
             KeyCode::Right => {
-                self.messages_view.write().unwrap().next_column();
+                self.messages_view.next_column();
             },
             KeyCode::Left => {
-                self.messages_view.write().unwrap().previous_column();
+                self.messages_view.previous_column();
             },
             _ => {}
         }
@@ -337,40 +322,37 @@ impl App {
             },
             KeyCode::Enter => {
                 self.sms_text_buffer.push('\n');
-                self.sms_input_view.write().unwrap().move_cursor_right(self.sms_text_buffer.len());
+                self.sms_input_view.move_cursor_right(self.sms_text_buffer.len());
             },
             KeyCode::Backspace => {
-                let mut input = self.sms_input_view.write().unwrap();
-                if input.cursor_position() > 0 {
-                    let pos = input.cursor_position();
+                if self.sms_input_view.cursor_position() > 0 {
+                    let pos = self.sms_input_view.cursor_position();
                     self.sms_text_buffer.remove(pos - 1);
-                    input.move_cursor_left();
+                    self.sms_input_view.move_cursor_left();
                 }
             },
             KeyCode::Delete => {
-                let input = self.sms_input_view.read().unwrap();
-                if input.cursor_position() < self.sms_text_buffer.len() {
-                    let pos = input.cursor_position();
+                if self.sms_input_view.cursor_position() < self.sms_text_buffer.len() {
+                    let pos = self.sms_input_view.cursor_position();
                     self.sms_text_buffer.remove(pos);
                 }
             },
             KeyCode::Left => {
-                self.sms_input_view.write().unwrap().move_cursor_left();
+                self.sms_input_view.move_cursor_left();
             },
             KeyCode::Right => {
-                self.sms_input_view.write().unwrap().move_cursor_right(self.sms_text_buffer.len());
+                self.sms_input_view.move_cursor_right(self.sms_text_buffer.len());
             },
             KeyCode::Home => {
-                self.sms_input_view.write().unwrap().move_cursor_to_start();
+                self.sms_input_view.move_cursor_to_start();
             },
             KeyCode::End => {
-                self.sms_input_view.write().unwrap().move_cursor_to_end(self.sms_text_buffer.len());
+                self.sms_input_view.move_cursor_to_end(self.sms_text_buffer.len());
             },
             KeyCode::Char(c) => {
-                let mut view = self.sms_input_view.write().unwrap();
-                let pos = view.cursor_position();
+                let pos = self.sms_input_view.cursor_position();
                 self.sms_text_buffer.insert(pos, c);
-                view.move_cursor_right(self.sms_text_buffer.len());
+                self.sms_input_view.move_cursor_right(self.sms_text_buffer.len());
             },
             _ => {}
         }
@@ -396,12 +378,11 @@ impl App {
                 self.phone_input_view.render(frame, &self.input_buffer, theme);
             },
             AppState::ViewMessages(phone_number) => {
-                let mut view = self.messages_view.write().unwrap();
-                view.render(frame, phone_number, theme);
+                self.messages_view.render(frame, phone_number, theme);
             },
             AppState::ComposeSms(phone_number) => {
                 let char_count = self.sms_text_buffer.chars().count();
-                self.sms_input_view.read().unwrap().render(
+                self.sms_input_view.render(
                     frame,
                     phone_number,
                     &self.sms_text_buffer,
