@@ -1,14 +1,43 @@
 use ratatui::style::{Color, Style};
 use ratatui::style::palette::tailwind;
 
-const PALETTES: [tailwind::Palette; 6] = [
-    tailwind::BLUE,
-    tailwind::ZINC,
-    tailwind::EMERALD,
-    tailwind::INDIGO,
-    tailwind::RED,
-    tailwind::PINK
-];
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+pub enum PresetTheme {
+    Blue,
+    Zinc,
+    Emerald,
+    Indigo,
+    Red,
+    Pink
+}
+impl PresetTheme {
+    pub fn palette(&self) -> tailwind::Palette {
+        match self {
+            PresetTheme::Blue => tailwind::BLUE,
+            PresetTheme::Zinc => tailwind::ZINC,
+            PresetTheme::Emerald => tailwind::EMERALD,
+            PresetTheme::Indigo => tailwind::INDIGO,
+            PresetTheme::Red => tailwind::RED,
+            PresetTheme::Pink => tailwind::PINK
+        }
+    }
+
+    pub fn variants() -> &'static [PresetTheme] {
+        &[
+            PresetTheme::Blue,
+            PresetTheme::Zinc,
+            PresetTheme::Emerald,
+            PresetTheme::Indigo,
+            PresetTheme::Red,
+            PresetTheme::Pink,
+        ]
+    }
+}
+impl Default for PresetTheme {
+    fn default() -> Self {
+        PresetTheme::Blue
+    }
+}
 
 #[derive(Clone)]
 pub struct Theme {
@@ -105,17 +134,31 @@ impl Theme {
         Style::default().fg(self.input_fg).bg(self.input_bg)
     }
 }
+impl From<&PresetTheme> for Theme {
+    fn from(preset: &PresetTheme) -> Self {
+        Self::new(&preset.palette())
+    }
+}
 
 pub struct ThemeManager {
     themes: Vec<Theme>,
     current_index: usize,
 }
 impl ThemeManager {
-    pub fn new() -> Self {
-        let themes = PALETTES.iter().map(Theme::new).collect();
+    pub fn with_preset(preset: PresetTheme) -> Self {
+        let themes = PresetTheme::variants()
+            .iter()
+            .map(|preset| Theme::from(preset))
+            .collect();
+
+        let current_index = PresetTheme::variants()
+            .iter()
+            .position(|&p| std::mem::discriminant(&p) == std::mem::discriminant(&preset))
+            .unwrap_or(0);
+
         Self {
             themes,
-            current_index: 0,
+            current_index
         }
     }
 

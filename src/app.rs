@@ -1,11 +1,11 @@
 use color_eyre::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::{DefaultTerminal, Frame};
-use sms_client::config::ClientConfig;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use tokio::sync::mpsc;
 
+use crate::TerminalConfig;
 use crate::error::AppError;
 use crate::theme::ThemeManager;
 use crate::types::{AppState, KeyDebouncer, KeyPress, SmsMessage, DEBOUNCE_DURATION};
@@ -36,19 +36,17 @@ pub struct App {
     current_phone_for_sms: String
 }
 impl App {
-    pub fn new() -> Result<Self> {
-        let config = ClientConfig::http_only("http://192.168.1.21:3000").with_auth("test");
-        let client = sms_client::Client::new(config)
+    pub fn new(config: TerminalConfig) -> Result<Self> {
+        let client = sms_client::Client::new(config.client)
             .map_err(|e| AppError::ConfigError(e.to_string()))?;
 
         let (tx, rx) = mpsc::unbounded_channel();
-
         Ok(Self {
             input_buffer: String::new(),
             sms_text_buffer: String::new(),
             app_state: AppState::InputPhone,
             key_debouncer: KeyDebouncer::new(DEBOUNCE_DURATION),
-            theme_manager: ThemeManager::new(),
+            theme_manager: ThemeManager::with_preset(config.theme),
             phone_input_view: PhoneInputView::new(),
             messages_view: Arc::new(RwLock::new(MessagesView::new(client.http_arc()))),
             sms_input_view: Arc::new(RwLock::new(SmsInputView::new())),
