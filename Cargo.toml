@@ -1,6 +1,6 @@
 [package]
 name = "sms-terminal"
-version = "0.1.0"
+version = "1.2.0"
 description = "SMS message viewer terminal"
 authors = ["morgverd <morgverd@gmail.com>"]
 license = "MIT"
@@ -18,3 +18,5 @@ textwrap = "0.16.2"
 clap = { version = "4.5.47", features = ["derive"] }
 ansi-escape-sequences = "0.1.0"
 unicode-general-category = "1.0.0"
+serde = { version = "1.0.219", features = ["derive"] }
+toml = "0.9.5"

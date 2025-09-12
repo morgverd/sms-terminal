@@ -14,7 +14,11 @@ impl PhoneInputView {
     pub fn new() -> Self {
 
         // TODO: Fetch the latest contacts from client!
-        let recent_contacts = vec![];
+        let recent_contacts = vec![
+            ("+447851124604".to_string(), "Morgan".to_string()),
+            ("+447425905338".to_string(), "Aaron".to_string()),
+            ("2732".to_string(), "ASDA Mobile".to_string())
+        ];
         Self {
             recent_contacts,
             selected_contact: None

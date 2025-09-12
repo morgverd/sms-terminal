@@ -1,7 +1,9 @@
 use ratatui::style::{Color, Style};
 use ratatui::style::palette::tailwind;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+#[derive(clap::ValueEnum, Serialize, Deserialize, Debug, Clone, Copy)]
+#[serde(rename_all = "lowercase")]
 pub enum PresetTheme {
     Blue,
     Zinc,

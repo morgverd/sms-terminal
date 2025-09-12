@@ -325,9 +325,9 @@ impl NotificationView {
 
             // Only show "(Enter) view" for notifications that can be viewed
             let controls_text = if notification.can_view() {
-                "(Space) dismiss • (Enter) view"
+                "(F1) dismiss • (F2) view"
             } else {
-                "(Space) dismiss"
+                "(F1) dismiss"
             };
 
             lines.push(Line::from(Span::styled(

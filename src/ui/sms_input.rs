@@ -1,4 +1,4 @@
-use ratatui::layout::{Alignment, Constraint, Layout};
+use ratatui::layout::{Alignment, Constraint, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Clear, Paragraph, Wrap};
@@ -8,13 +8,21 @@ use ratatui::style::palette::tailwind;
 use crate::theme::Theme;
 use super::centered_rect;
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum ConfirmationState {
+    None,
+    Confirming { selected_yes: bool }
+}
+
 pub struct SmsInputView {
-    cursor_position: usize
+    cursor_position: usize,
+    confirmation_state: ConfirmationState
 }
 impl SmsInputView {
     pub fn new() -> Self {
         Self {
-            cursor_position: 0
+            cursor_position: 0,
+            confirmation_state: ConfirmationState::None
         }
     }
 
@@ -42,6 +50,28 @@ impl SmsInputView {
 
     pub fn move_cursor_to_end(&mut self, text_len: usize) {
         self.cursor_position = text_len;
+    }
+
+    pub fn show_confirmation(&mut self) {
+        self.confirmation_state = ConfirmationState::Confirming { selected_yes: false };
+    }
+
+    pub fn hide_confirmation(&mut self) {
+        self.confirmation_state = ConfirmationState::None;
+    }
+
+    pub fn is_confirming(&self) -> bool {
+        matches!(self.confirmation_state, ConfirmationState::Confirming { .. })
+    }
+
+    pub fn toggle_confirmation_selection(&mut self) {
+        if let ConfirmationState::Confirming { selected_yes } = &mut self.confirmation_state {
+            *selected_yes = !*selected_yes;
+        }
+    }
+
+    pub fn is_yes_selected(&self) -> bool {
+        matches!(self.confirmation_state, ConfirmationState::Confirming { selected_yes: true })
     }
 
     pub fn render(
@@ -87,8 +117,6 @@ impl SmsInputView {
         frame.render_widget(text_area, layout[0]);
 
         // Character counter
-        // We can send massive messages since SMS-API supports message concatenation,
-        // so the limit doesn't actually stop anything it just shows that it's a bit long.
         let (counter_style, counter_text) = if char_count <= 160 {
             (theme.accent_style().bg(theme.bg), format!("{}/160 (1 SMS)", char_count))
         } else if char_count <= 320 {
@@ -104,10 +132,84 @@ impl SmsInputView {
         frame.render_widget(char_counter, layout[1]);
 
         // Help text
-        let help = Paragraph::new("(Esc) cancel | (Enter) new line | (Ctrl+Space) send")
+        let help = Paragraph::new("(Enter) new line | (Ctrl+Space) send | (Esc) cancel")
             .style(theme.secondary_style())
             .alignment(Alignment::Center);
         frame.render_widget(help, layout[2]);
+
+        // Render confirmation dialog if active
+        if self.is_confirming() {
+            self.render_confirmation_dialog(frame, theme);
+        }
+    }
+
+    fn render_confirmation_dialog(&self, frame: &mut Frame, theme: &Theme) {
+        let dialog_area = centered_rect(50, 15, frame.area()); // Reduced from 30 to 15
+        frame.render_widget(Clear, dialog_area);
+
+        let block = Block::bordered()
+            .title(" Confirm Send ")
+            .title_alignment(Alignment::Center)
+            .border_type(BorderType::Double)
+            .border_style(theme.border_focused_style())
+            .style(theme.primary_style());
+
+        let inner = block.inner(dialog_area);
+        frame.render_widget(block, dialog_area);
+
+        let layout = Layout::vertical([
+            Constraint::Length(2),   // Question
+            Constraint::Min(1),      // Flexible spacer that takes remaining space
+            Constraint::Length(2),   // Buttons
+            Constraint::Length(1),   // Help text at bottom
+        ])
+            .split(inner);
+
+        let question = Paragraph::new("Are you sure you want to send this SMS?")
+            .style(theme.primary_style())
+            .alignment(Alignment::Center)
+            .wrap(Wrap { trim: false });
+        frame.render_widget(question, layout[0]);
+
+        let (yes_style, no_style) = if let ConfirmationState::Confirming { selected_yes } = self.confirmation_state {
+            if selected_yes {
+                (
+                    Style::default()
+                        .fg(theme.bg)
+                        .bg(theme.text_accent)
+                        .add_modifier(Modifier::BOLD),
+                    theme.secondary_style()
+                )
+            } else {
+                (
+                    theme.secondary_style(),
+                    Style::default()
+                        .fg(theme.bg)
+                        .bg(theme.text_error)
+                        .add_modifier(Modifier::BOLD)
+                )
+            }
+        } else {
+            (theme.secondary_style(), theme.secondary_style())
+        };
+
+        let buttons = Line::from(vec![
+            Span::raw("    "),
+            Span::styled("  Yes  ", yes_style),
+            Span::raw("     "),
+            Span::styled("  No  ", no_style),
+            Span::raw("    "),
+        ]);
+
+        let buttons_paragraph = Paragraph::new(buttons)
+            .style(theme.primary_style())
+            .alignment(Alignment::Center);
+        frame.render_widget(buttons_paragraph, layout[2]);
+
+        let help = Paragraph::new("(←/→) select | (Enter) confirm | (Esc) cancel")
+            .style(theme.secondary_style())
+            .alignment(Alignment::Center);
+        frame.render_widget(help, layout[3]);
     }
 
     fn render_text_with_cursor(&self, text: &str, theme: &Theme) -> Vec<Line<'static>> {

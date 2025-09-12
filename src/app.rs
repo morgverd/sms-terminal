@@ -205,14 +205,14 @@ impl App {
             return false;
         }
 
-        // Handle notification interactions first (priority).
+        // Handle notification interactions first (priority)
         if self.notification_view.has_notifications() {
             match key.code {
-                KeyCode::Char(' ') => {
+                KeyCode::F(1) => {
                     self.notification_view.dismiss_oldest();
                     return false;
                 },
-                KeyCode::Enter => {
+                KeyCode::F(2) => {
                     // Navigate to the most recent notification's conversation if it can be viewed
                     if let Some(phone_number) = self.notification_view.get_first()
                         .filter(|n| n.can_view())
@@ -228,6 +228,7 @@ impl App {
             }
         }
 
+        // State specific key handlers
         match &self.app_state {
             AppState::InputPhone => self.handle_input_phone(key).await,
             AppState::ViewMessages(phone_number) => {
@@ -247,7 +248,6 @@ impl App {
                 return true;
             },
             KeyCode::Enter => {
-                // Check if a contact is selected first
                 if let Some(selected_phone) = self.phone_input_view.get_selected_phone() {
                     self.input_buffer = selected_phone;
                 }
@@ -259,22 +259,18 @@ impl App {
             },
             KeyCode::Down => {
                 self.phone_input_view.select_next();
-                // Clear input buffer when navigating contacts
                 self.input_buffer.clear();
             },
             KeyCode::Up => {
                 self.phone_input_view.select_previous();
-                // Clear input buffer when navigating contacts
                 self.input_buffer.clear();
             },
             KeyCode::Backspace => {
                 self.input_buffer.pop();
-                // Clear selection when typing
                 self.phone_input_view.clear_selection();
             },
             KeyCode::Char(c) => {
                 self.input_buffer.push(c);
-                // Clear selection when typing
                 self.phone_input_view.clear_selection();
             },
             _ => {}
@@ -326,6 +322,35 @@ impl App {
     }
 
     async fn handle_compose_sms(&mut self, key: KeyEvent, phone_number: &str) -> bool {
+        // If confirmation dialog is showing, handle its input first
+        if self.sms_input_view.is_confirming() {
+            match key.code {
+                KeyCode::Esc => {
+                    self.sms_input_view.hide_confirmation();
+                },
+                KeyCode::Left | KeyCode::Right => {
+                    self.sms_input_view.toggle_confirmation_selection();
+                },
+                KeyCode::Enter => {
+                    if self.sms_input_view.is_yes_selected() {
+
+                        // TODO: Actually send the message!
+                        let notification = NotificationType::GenericMessage {
+                            color: Color::Green,
+                            title: "SMS Sent (not really)".to_string(),
+                            message: self.sms_text_buffer.clone(),
+                        };
+                        self.notification_view.add_notification(notification);
+                        self.app_state = AppState::ViewMessages(phone_number.to_string());
+                    }
+                    self.sms_input_view.hide_confirmation();
+                },
+                _ => {}
+            }
+            return false;
+        }
+
+        // Normal SMS input handling
         match key.code {
             KeyCode::Esc => {
                 self.app_state = AppState::ViewMessages(phone_number.to_string());
@@ -333,9 +358,8 @@ impl App {
             },
             KeyCode::Char(' ') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 if !self.sms_text_buffer.is_empty() {
-                    // TODO: Show confirmation popup, then send SMS.
-                    self.app_state = AppState::ViewMessages(phone_number.to_string());
-                    self.sms_text_buffer.clear();
+                    // Show confirmation dialog
+                    self.sms_input_view.show_confirmation();
                 }
             },
             KeyCode::Enter => {
@@ -374,7 +398,6 @@ impl App {
             },
             _ => {}
         }
-
         false
     }
 
