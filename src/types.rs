@@ -55,7 +55,10 @@ pub enum AppState {
     InputPhone,
     ViewMessages(String),
     ComposeSms(String),
-    Error(String)
+    Error {
+        message: String,
+        dismissible: bool
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

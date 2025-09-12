@@ -23,7 +23,10 @@ pub enum LiveEvent {
     NewMessage(SmsStoredMessage),
     SendFailure(String),
     ShowNotification(NotificationType),
-    ShowError(String)
+    ShowError {
+        message: String,
+        dismissible: bool
+    }
 }
 
 pub struct App {
@@ -125,11 +128,11 @@ impl App {
         tokio::spawn(async move {
 
             // Handle early termination or errors on starting.
-            let error_message = match client.start_blocking_websocket().await {
-                Ok(_) => "The WebSocket has been terminated!".to_string(),
-                Err(e) => e.to_string()
+            let (message, dismissible) = match client.start_blocking_websocket().await {
+                Ok(_) => ("The WebSocket has been terminated!".to_string(), true),
+                Err(e) => (e.to_string(), false)
             };
-            let _ = task_sender.send(LiveEvent::ShowError(error_message));
+            let _ = task_sender.send(LiveEvent::ShowError { message, dismissible });
         });
     }
 
@@ -163,8 +166,8 @@ impl App {
                 LiveEvent::ShowNotification(notification) => {
                     self.notification_view.add_notification(notification)
                 },
-                LiveEvent::ShowError(error_message) => {
-                    self.app_state = AppState::Error(error_message);
+                LiveEvent::ShowError { message, dismissible } => {
+                    self.app_state = AppState::Error { message, dismissible };
                 }
             }
         }
@@ -180,7 +183,7 @@ impl App {
                 match self.messages_view.load_messages(phone_number).await {
                     Ok(()) => {},
                     Err(e) => {
-                        self.app_state = AppState::Error(e.to_string());
+                        self.app_state = AppState::Error { message: e.to_string(), dismissible: false };
                     }
                 }
             }
@@ -233,7 +236,7 @@ impl App {
             AppState::ComposeSms(phone_number) => {
                 self.handle_compose_sms(key, phone_number.clone().as_str()).await
             },
-            AppState::Error(_) => self.handle_error(key),
+            AppState::Error { dismissible, .. } => self.handle_error(key, *dismissible),
         }
     }
 
@@ -296,7 +299,7 @@ impl App {
                 match self.messages_view.reload(phone_number).await {
                     Ok(()) => {},
                     Err(e) => {
-                        self.app_state = AppState::Error(e.to_string());
+                        self.app_state = AppState::Error { message: e.to_string(), dismissible: true };
                     }
                 }
             },
@@ -375,11 +378,14 @@ impl App {
         false
     }
 
-    fn handle_error(&mut self, key: KeyEvent) -> bool {
+    fn handle_error(&mut self, key: KeyEvent, dismissible: bool) -> bool {
         match key.code {
-            KeyCode::Esc => {
+            KeyCode::Esc if dismissible => {
                 self.app_state = AppState::InputPhone;
                 false
+            },
+            KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                true
             },
             _ => false
         }
@@ -405,8 +411,8 @@ impl App {
                     theme
                 );
             },
-            AppState::Error(msg) => {
-                self.error_view.render(frame, msg, theme);
+            AppState::Error { message, dismissible } => {
+                self.error_view.render(frame, message, *dismissible, theme);
             }
         }
 
