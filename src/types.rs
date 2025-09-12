@@ -61,6 +61,11 @@ pub enum AppState {
     }
 }
 
+pub enum KeyResponse {
+    SetAppState(AppState),
+    Quit
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct KeyPress {
     pub code: KeyCode,

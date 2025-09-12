@@ -1,14 +1,17 @@
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::{Alignment, Constraint, Layout};
 use ratatui::style::{Color, Style};
 use ratatui::widgets::{Block, BorderType, Clear, List, ListItem, Paragraph};
 use ratatui::Frame;
 
 use crate::theme::Theme;
+use crate::types::{AppState, KeyResponse};
 use super::centered_rect;
 
 pub struct PhoneInputView {
     recent_contacts: Vec<(String, String)>, // (phone, name)
-    selected_contact: Option<usize>
+    selected_contact: Option<usize>,
+    input_buffer: String
 }
 impl PhoneInputView {
     pub fn new() -> Self {
@@ -21,7 +24,8 @@ impl PhoneInputView {
         ];
         Self {
             recent_contacts,
-            selected_contact: None
+            selected_contact: None,
+            input_buffer: String::new()
         }
     }
 
@@ -37,7 +41,7 @@ impl PhoneInputView {
         }
     }
 
-    pub fn select_next(&mut self) {
+    fn select_next(&mut self) {
         if self.recent_contacts.is_empty() {
             return;
         }
@@ -50,7 +54,7 @@ impl PhoneInputView {
         }
     }
 
-    pub fn select_previous(&mut self) {
+    fn select_previous(&mut self) {
         if self.recent_contacts.is_empty() {
             return;
         }
@@ -62,17 +66,57 @@ impl PhoneInputView {
         }
     }
 
-    pub fn get_selected_phone(&self) -> Option<String> {
-        self.selected_contact
-            .and_then(|i| self.recent_contacts.get(i))
-            .map(|(phone, _)| phone.clone())
-    }
-
-    pub fn clear_selection(&mut self) {
+    fn clear_selection(&mut self) {
         self.selected_contact = None;
     }
 
-    pub fn render(&self, frame: &mut Frame, input_buffer: &str, theme: &Theme) {
+    pub fn handle_key(&mut self, key: KeyEvent) -> Option<KeyResponse> {
+        match key.code {
+            // Make sure control is held so it's not just a letter input into text box.
+            KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                return Some(KeyResponse::Quit);
+            },
+            KeyCode::Enter => {
+                let current_phone = self.selected_contact
+                    .and_then(|i| self.recent_contacts.get(i))
+                    .map(|(phone, _)| phone.clone());
+
+                if let Some(current_phone) = current_phone {
+                    self.input_buffer = current_phone;
+                }
+
+                if !self.input_buffer.is_empty() {
+                    let phone_number = self.input_buffer.clone();
+                    self.input_buffer.clear();
+
+                    return Some(KeyResponse::SetAppState(
+                        AppState::ViewMessages(phone_number)
+                    ));
+                }
+            },
+            KeyCode::Down => {
+                self.select_next();
+                self.input_buffer.clear();
+            },
+            KeyCode::Up => {
+                self.select_previous();
+                self.input_buffer.clear();
+            },
+            KeyCode::Backspace => {
+                self.input_buffer.pop();
+                self.clear_selection();
+            },
+            KeyCode::Char(c) => {
+                self.input_buffer.push(c);
+                self.clear_selection();
+            },
+            _ => {}
+        }
+
+        None
+    }
+
+    pub fn render(&self, frame: &mut Frame, theme: &Theme) {
         let area = centered_rect(50, 35, frame.area());
         frame.render_widget(Clear, area);
 
@@ -106,14 +150,14 @@ impl PhoneInputView {
         frame.render_widget(prompt, layout[0]);
 
         // Input box
-        let input_text = if input_buffer.is_empty() {
+        let input_text = if self.input_buffer.is_empty() {
             "+1234567890"
         } else {
-            input_buffer
+            &*self.input_buffer
         };
 
         // If there is no text, mute the text box.
-        let input_style = if input_buffer.is_empty() {
+        let input_style = if self.input_buffer.is_empty() {
             Style::default().fg(theme.text_muted)
         } else {
             theme.input_style()
@@ -123,7 +167,7 @@ impl PhoneInputView {
             .style(input_style)
             .block(
                 Block::bordered()
-                    .border_style(if input_buffer.is_empty() {
+                    .border_style(if self.input_buffer.is_empty() {
                         theme.border_style()
                     } else {
                         theme.border_focused_style()

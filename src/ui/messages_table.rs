@@ -9,11 +9,12 @@ use ratatui::Frame;
 use sms_client::http::HttpClient;
 use sms_client::http::types::HttpPaginationOptions;
 use std::sync::Arc;
+use crossterm::event::{KeyCode, KeyEvent};
 use unicode_width::UnicodeWidthStr;
 
-use crate::error::AppError;
+use crate::error::{AppError, AppResult};
 use crate::theme::Theme;
-use crate::types::SmsMessage;
+use crate::types::{AppState, KeyResponse, SmsMessage};
 use super::centered_rect;
 
 const INFO_TEXT: [&str; 2] = [
@@ -56,17 +57,8 @@ impl MessagesTableView {
         }
     }
 
-    /// Check if we need to load initial messages for a phone number
-    pub fn should_load_initial(&self, phone_number: &str) -> bool {
-        // Load if:
-        // 1. We haven't loaded anything yet for this number
-        // 2. The phone number has changed from what we last loaded
-        let needs_load = self.last_loaded_phone.as_ref() != Some(&phone_number.to_string());
-        needs_load && !self.is_loading
-    }
-
     /// Load the next set of messages for the given phone number
-    pub async fn load_messages(&mut self, phone_number: &str) -> Result<(), AppError> {
+    pub async fn load_messages(&mut self, phone_number: &str) -> AppResult<()> {
         if phone_number.is_empty() {
             return Err(AppError::NoPhoneNumber);
         }
@@ -130,7 +122,7 @@ impl MessagesTableView {
         }
     }
 
-    pub async fn reload(&mut self, phone_number: &str) -> Result<(), AppError> {
+    pub async fn reload(&mut self, phone_number: &str) -> AppResult<()> {
         self.reset_pagination();
         self.load_messages(phone_number).await
     }
@@ -181,7 +173,7 @@ impl MessagesTableView {
         );
     }
 
-    pub async fn check_load_more(&mut self, phone_number: &str) -> Result<(), AppError> {
+    pub async fn check_load_more(&mut self, phone_number: &str) -> AppResult<()> {
         // Don't load if already loading, have no more data, or no messages
         if !self.has_more || self.is_loading || self.messages.is_empty() {
             return Ok(());
@@ -252,9 +244,45 @@ impl MessagesTableView {
         self.error_message = error;
     }
 
-    /// TODO: Websocket integration!
-    pub fn get_last_message_id(&self) -> Option<String> {
-        self.messages.first().map(|m| m.id.clone())
+    pub async fn handle_key(&mut self, key: KeyEvent, phone_number: &str) -> Option<KeyResponse> {
+        match key.code {
+            KeyCode::Esc => {
+                self.reset();
+                return Some(KeyResponse::SetAppState(AppState::InputPhone));
+            },
+            KeyCode::Char('c') => {
+                let state = AppState::ComposeSms(phone_number.to_string());
+                return Some(KeyResponse::SetAppState(state));
+            },
+            KeyCode::Char('r') => {
+                match self.reload(phone_number).await {
+                    Ok(()) => {},
+                    Err(e) => {
+                        let state = AppState::Error { message: e.to_string(), dismissible: true };
+                        return Some(KeyResponse::SetAppState(state));
+                    }
+                }
+            },
+            KeyCode::Down => {
+                self.next_row().await;
+                // Check if we need to load more after moving
+                if let Err(e) = self.check_load_more(phone_number).await {
+                    self.set_error_message(Some(e.to_string()));
+                }
+            },
+            KeyCode::Up => {
+                self.previous_row().await;
+            },
+            KeyCode::Right => {
+                self.next_column();
+            },
+            KeyCode::Left => {
+                self.previous_column();
+            },
+            _ => {}
+        }
+
+        None
     }
 
     pub fn render(&mut self, frame: &mut Frame, phone_number: &str, theme: &Theme) {

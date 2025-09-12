@@ -4,8 +4,10 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Clear, Paragraph, Wrap};
 use ratatui::Frame;
 use std::time::{Duration, Instant};
+use crossterm::event::{KeyCode, KeyEvent};
 use sms_client::types::ModemStatusUpdateState;
 use crate::theme::Theme;
+use crate::types::{AppState, KeyResponse};
 
 #[derive(Clone, Debug)]
 pub enum NotificationType {
@@ -102,32 +104,77 @@ impl NotificationView {
         }
     }
 
-    /// Remove expired notifications automatically.
-    pub fn remove_expired(&mut self) {
-        self.notifications.retain(|notification| !notification.is_expired(self.display_duration));
+    pub fn handle_key(&mut self, key: KeyEvent) -> Option<KeyResponse> {
+        match key.code {
+            KeyCode::F(1) => {
+                self.dismiss_oldest();
+            },
+            KeyCode::F(2) => {
+
+                // Navigate to the most recent notification's conversation if it can be viewed
+                if let Some(phone_number) = self.notifications.first()
+                    .filter(|n| n.can_view())
+                    .and_then(|n| n.get_phone_number())
+                {
+                    self.dismiss_all();
+
+                    let state = AppState::ViewMessages(phone_number);
+                    return Some(KeyResponse::SetAppState(state));
+                }
+            },
+            _ => { }
+        }
+
+        None
     }
 
-    /// Remove the first notification after jumping to it.
-    pub fn dismiss_all(&mut self) {
+    pub fn render(&mut self, frame: &mut Frame, theme: &Theme) {
+
+        // TODO: Should be calling this way less. No need to enforce expiry every frame.
+        self.notifications.retain(|notification| !notification.is_expired(self.display_duration));
+        if self.notifications.is_empty() {
+            return;
+        }
+
+        let area = frame.area();
+        let mut y_offset = 1;
+        let mut is_top = true;
+
+        for notification in self.notifications.iter() {
+            let ctx = RenderContext {
+                theme,
+                opacity_modifier: if is_top { Modifier::empty() } else { Modifier::DIM },
+                is_top
+            };
+
+            // Position notifications from top-right
+            let width = area.width.min(55);
+            let x = area.width.saturating_sub(width).saturating_sub(1);
+            let y = y_offset;
+
+            let height = self.calculate_notification_height(notification, is_top);
+            if y + height > area.height.saturating_sub(1) {
+                break;
+            }
+
+            let popup_area = Rect::new(x, y, width, height);
+            self.render_notification(frame, notification, popup_area, &ctx);
+
+            y_offset += height + 1;
+            is_top = false;
+        }
+    }
+
+    fn dismiss_all(&mut self) {
         if !self.notifications.is_empty() {
             self.notifications.clear();
         }
     }
 
-    /// Remove the last notification after pressing dismissal key.
-    pub fn dismiss_oldest(&mut self) {
+    fn dismiss_oldest(&mut self) {
         if !self.notifications.is_empty() {
             self.notifications.pop();
         }
-    }
-
-    /// Get the first notifications phone number for view jumping.
-    pub fn get_first(&self) -> Option<&NotificationMessage> {
-        self.notifications.first()
-    }
-
-    pub fn has_notifications(&self) -> bool {
-        !self.notifications.is_empty()
     }
 
     fn get_notification_style(&self, notification: &NotificationMessage, theme: &Theme) -> NotificationStyle {
@@ -176,41 +223,6 @@ impl NotificationView {
                 border_color: color.clone(),
                 title_color: color.clone()
             }
-        }
-    }
-
-    pub fn render(&mut self, frame: &mut Frame, theme: &Theme) {
-        self.remove_expired();
-        if self.notifications.is_empty() {
-            return;
-        }
-
-        let area = frame.area();
-        let mut y_offset = 1;
-        let mut is_top = true;
-
-        for notification in self.notifications.iter() {
-            let ctx = RenderContext {
-                theme,
-                opacity_modifier: if is_top { Modifier::empty() } else { Modifier::DIM },
-                is_top
-            };
-
-            // Position notifications from top-right
-            let width = area.width.min(55);
-            let x = area.width.saturating_sub(width).saturating_sub(1);
-            let y = y_offset;
-
-            let height = self.calculate_notification_height(notification, is_top);
-            if y + height > area.height.saturating_sub(1) {
-                break;
-            }
-
-            let popup_area = Rect::new(x, y, width, height);
-            self.render_notification(frame, notification, popup_area, &ctx);
-
-            y_offset += height + 1;
-            is_top = false;
         }
     }
 

@@ -45,14 +45,12 @@ impl Default for PresetTheme {
 pub struct Theme {
     // Base colors
     pub bg: Color,
-    pub fg: Color,
 
     // Component colors
     pub header_bg: Color,
     pub header_fg: Color,
     pub border: Color,
     pub border_focused: Color,
-    pub border_error: Color,
 
     // Text colors
     pub text_primary: Color,
@@ -78,14 +76,12 @@ impl Theme {
         Self {
             // Base colors
             bg: tailwind::SLATE.c950,
-            fg: tailwind::SLATE.c200,
 
             // Component colors
             header_bg: palette.c900,
             header_fg: tailwind::SLATE.c200,
             border: palette.c400,
             border_focused: palette.c500,
-            border_error: tailwind::RED.c500,
 
             // Text colors
             text_primary: tailwind::SLATE.c200,

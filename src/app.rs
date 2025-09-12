@@ -9,9 +9,9 @@ use sms_client::ws::types::WebsocketMessage;
 use tokio::sync::mpsc;
 
 use crate::TerminalConfig;
-use crate::error::AppError;
+use crate::error::{AppError, AppResult};
 use crate::theme::ThemeManager;
-use crate::types::{AppState, KeyDebouncer, KeyPress, SmsMessage, DEBOUNCE_DURATION};
+use crate::types::{AppState, KeyDebouncer, KeyPress, KeyResponse, SmsMessage, DEBOUNCE_DURATION};
 use crate::ui::error::ErrorView;
 use crate::ui::messages_table::MessagesTableView;
 use crate::ui::notification::{NotificationType, NotificationView};
@@ -30,8 +30,6 @@ pub enum LiveEvent {
 }
 
 pub struct App {
-    input_buffer: String,
-    sms_text_buffer: String,
     app_state: AppState,
     key_debouncer: KeyDebouncer,
     theme_manager: ThemeManager,
@@ -51,8 +49,6 @@ impl App {
 
         let (tx, rx) = mpsc::unbounded_channel();
         Ok(Self {
-            input_buffer: String::new(),
-            sms_text_buffer: String::new(),
             app_state: AppState::InputPhone,
             key_debouncer: KeyDebouncer::new(DEBOUNCE_DURATION),
             theme_manager: ThemeManager::with_preset(config.theme),
@@ -69,7 +65,7 @@ impl App {
 
     pub async fn run(mut self, mut terminal: DefaultTerminal) -> Result<()> {
         if let Some(client) = &self.sms_client {
-            self.start_sms_websocket(client).await;
+            self.start_sms_websocket(client).await?;
         } else {
 
             // Show a notification informing the user that their websocket
@@ -84,8 +80,7 @@ impl App {
 
         loop {
             terminal.draw(|frame| self.render(frame))?;
-            self.process_live_events();
-            self.handle_state_transitions().await;
+            self.process_live_events()?;
 
             if event::poll(Duration::from_millis(100))? {
                 if let Event::Key(key) = event::read()? {
@@ -93,15 +88,89 @@ impl App {
                         continue;
                     }
 
-                    if self.handle_key_event(key).await {
-                        return Ok(());
+                    match self.get_key_response(key).await {
+                        Some(KeyResponse::SetAppState(state)) => {
+
+                            // Attempt to transition app state, otherwise show an error.
+                            if let Err(e) = self.transition_state(state).await {
+                                self.app_state = AppState::Error {
+                                    message: e.to_string(),
+                                    dismissible: false
+                                }
+                            }
+                        },
+                        Some(KeyResponse::Quit) => return Ok(()),
+                        _ => { }
                     }
                 }
             }
         }
     }
 
-    async fn start_sms_websocket(&self, client: &Client) {
+    async fn transition_state(&mut self, new_state: AppState) -> AppResult<()> {
+        match &new_state {
+            AppState::ViewMessages(phone_number) => self.messages_view.load_messages(phone_number).await?,
+            AppState::ComposeSms(_) => self.sms_input_view.reset(),
+            _ => { }
+        };
+
+        self.app_state = new_state;
+        self.key_debouncer.reset();
+        Ok(())
+    }
+
+    async fn get_key_response(&mut self, key: KeyEvent) -> Option<KeyResponse> {
+        // Debounce all key presses.
+        let key_press = KeyPress::from(key);
+        if !self.key_debouncer.should_process(&key_press) {
+            return None;
+        }
+
+        // Global theme switching with Shift+T. This was such a pain to make
+        // but a coworker said it looked cool, so I stuck with it throughout.
+        // This MUST remain uppercase T, since shift modifies it before here!
+        if key.code == KeyCode::Char('T') && key.modifiers.contains(KeyModifiers::SHIFT) {
+            self.theme_manager.next();
+            return None;
+        }
+
+        // Handle notification interactions first (priority)
+        if let Some(response) = self.notification_view.handle_key(key) {
+            return Some(response);
+        }
+
+        // State specific key handlers
+        match &self.app_state {
+            AppState::InputPhone => self.phone_input_view.handle_key(key),
+            AppState::ViewMessages(phone_number) => self.messages_view.handle_key(key, phone_number).await,
+            AppState::ComposeSms(phone_number) => self.sms_input_view.handle_key(key, phone_number),
+            AppState::Error { dismissible, .. } => self.error_view.handle_key(key, *dismissible)
+        }
+    }
+
+    fn render(&mut self, frame: &mut Frame) {
+        let theme = self.theme_manager.current();
+
+        match &self.app_state {
+            AppState::InputPhone => {
+                self.phone_input_view.render(frame, theme);
+            },
+            AppState::ViewMessages(phone_number) => {
+                self.messages_view.render(frame, phone_number, theme);
+            },
+            AppState::ComposeSms(phone_number) => {
+                self.sms_input_view.render(frame, phone_number, theme);
+            },
+            AppState::Error { message, dismissible } => {
+                self.error_view.render(frame, message, *dismissible, theme);
+            }
+        }
+
+        // Render notifications on top of everything
+        self.notification_view.render(frame, theme);
+    }
+
+    async fn start_sms_websocket(&self, client: &Client) -> AppResult<()> {
         let ws_sender = self.message_sender.clone();
         client.on_message_simple(move |message| {
             match message {
@@ -118,9 +187,7 @@ impl App {
                 },
                 _ => { }
             }
-        })
-        .await
-        .expect("Failed to create websocket listener!");
+        }).await?;
 
         // Create websocket worker task.
         let client = client.clone();
@@ -134,9 +201,11 @@ impl App {
             };
             let _ = task_sender.send(LiveEvent::ShowError { message, dismissible });
         });
+
+        Ok(())
     }
 
-    fn process_live_events(&mut self) {
+    fn process_live_events(&mut self) -> AppResult<()> {
         while let Ok(msg) = self.message_receiver.try_recv() {
             match msg {
                 LiveEvent::NewMessage(sms_message) => {
@@ -171,275 +240,7 @@ impl App {
                 }
             }
         }
-    }
 
-    async fn handle_state_transitions(&mut self) {
-        if let AppState::ViewMessages(phone_number) = &self.app_state {
-
-            // Only load the initial batch of messages after a state change
-            // if there are no messages already loaded (prevents returning to
-            // this state double loading messages).
-            if self.messages_view.should_load_initial(phone_number) {
-                match self.messages_view.load_messages(phone_number).await {
-                    Ok(()) => {},
-                    Err(e) => {
-                        self.app_state = AppState::Error { message: e.to_string(), dismissible: false };
-                    }
-                }
-            }
-        }
-    }
-
-    async fn handle_key_event(&mut self, key: KeyEvent) -> bool {
-        // Debounce all key presses.
-        let key_press = KeyPress::from(key);
-        if !self.key_debouncer.should_process(&key_press) {
-            return false;
-        }
-
-        // Global theme switching with Shift+T. This was such a pain to make
-        // but a coworker said it looked cool, so I stuck with it throughout.
-        // This MUST remain uppercase T, since shift modifies it before here!
-        if key.code == KeyCode::Char('T') && key.modifiers.contains(KeyModifiers::SHIFT) {
-            self.theme_manager.next();
-            return false;
-        }
-
-        // Handle notification interactions first (priority)
-        if self.notification_view.has_notifications() {
-            match key.code {
-                KeyCode::F(1) => {
-                    self.notification_view.dismiss_oldest();
-                    return false;
-                },
-                KeyCode::F(2) => {
-                    // Navigate to the most recent notification's conversation if it can be viewed
-                    if let Some(phone_number) = self.notification_view.get_first()
-                        .filter(|n| n.can_view())
-                        .and_then(|n| n.get_phone_number())
-                    {
-                        self.notification_view.dismiss_all();
-                        self.app_state = AppState::ViewMessages(phone_number);
-                        self.key_debouncer.reset();
-                        return false;
-                    }
-                },
-                _ => { }
-            }
-        }
-
-        // State specific key handlers
-        match &self.app_state {
-            AppState::InputPhone => self.handle_input_phone(key).await,
-            AppState::ViewMessages(phone_number) => {
-                self.handle_view_messages(key, phone_number.clone().as_str()).await
-            },
-            AppState::ComposeSms(phone_number) => {
-                self.handle_compose_sms(key, phone_number.clone().as_str()).await
-            },
-            AppState::Error { dismissible, .. } => self.handle_error(key, *dismissible),
-        }
-    }
-
-    async fn handle_input_phone(&mut self, key: KeyEvent) -> bool {
-        match key.code {
-            // Make sure control is held so it's not just a letter input into text box.
-            KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                return true;
-            },
-            KeyCode::Enter => {
-                if let Some(selected_phone) = self.phone_input_view.get_selected_phone() {
-                    self.input_buffer = selected_phone;
-                }
-
-                if !self.input_buffer.is_empty() {
-                    self.app_state = AppState::ViewMessages(self.input_buffer.clone());
-                    self.key_debouncer.reset();
-                }
-            },
-            KeyCode::Down => {
-                self.phone_input_view.select_next();
-                self.input_buffer.clear();
-            },
-            KeyCode::Up => {
-                self.phone_input_view.select_previous();
-                self.input_buffer.clear();
-            },
-            KeyCode::Backspace => {
-                self.input_buffer.pop();
-                self.phone_input_view.clear_selection();
-            },
-            KeyCode::Char(c) => {
-                self.input_buffer.push(c);
-                self.phone_input_view.clear_selection();
-            },
-            _ => {}
-        }
-        false
-    }
-
-    async fn handle_view_messages(&mut self, key: KeyEvent, phone_number: &str) -> bool {
-        match key.code {
-            KeyCode::Esc => {
-                self.input_buffer.clear();
-                self.app_state = AppState::InputPhone;
-                self.key_debouncer.reset();
-                self.messages_view.reset();
-            },
-            KeyCode::Char('c') => {
-                self.sms_text_buffer.clear();
-                self.app_state = AppState::ComposeSms(phone_number.to_string());
-                self.sms_input_view.set_cursor_position(0, 0);
-            },
-            KeyCode::Char('r') => {
-                match self.messages_view.reload(phone_number).await {
-                    Ok(()) => {},
-                    Err(e) => {
-                        self.app_state = AppState::Error { message: e.to_string(), dismissible: true };
-                    }
-                }
-            },
-            KeyCode::Down => {
-                self.messages_view.next_row().await;
-                // Check if we need to load more after moving
-                if let Err(e) = self.messages_view.check_load_more(phone_number).await {
-                    self.messages_view.set_error_message(Some(e.to_string()));
-                }
-            },
-            KeyCode::Up => {
-                self.messages_view.previous_row().await;
-            },
-            KeyCode::Right => {
-                self.messages_view.next_column();
-            },
-            KeyCode::Left => {
-                self.messages_view.previous_column();
-            },
-            _ => {}
-        }
-
-        false
-    }
-
-    async fn handle_compose_sms(&mut self, key: KeyEvent, phone_number: &str) -> bool {
-        // If confirmation dialog is showing, handle its input first
-        if self.sms_input_view.is_confirming() {
-            match key.code {
-                KeyCode::Esc => {
-                    self.sms_input_view.hide_confirmation();
-                },
-                KeyCode::Left | KeyCode::Right => {
-                    self.sms_input_view.toggle_confirmation_selection();
-                },
-                KeyCode::Enter => {
-                    if self.sms_input_view.is_yes_selected() {
-
-                        // TODO: Actually send the message!
-                        let notification = NotificationType::GenericMessage {
-                            color: Color::Green,
-                            title: "SMS Sent (not really)".to_string(),
-                            message: self.sms_text_buffer.clone(),
-                        };
-                        self.notification_view.add_notification(notification);
-                        self.app_state = AppState::ViewMessages(phone_number.to_string());
-                    }
-                    self.sms_input_view.hide_confirmation();
-                },
-                _ => {}
-            }
-            return false;
-        }
-
-        // Normal SMS input handling
-        match key.code {
-            KeyCode::Esc => {
-                self.app_state = AppState::ViewMessages(phone_number.to_string());
-                self.sms_text_buffer.clear();
-            },
-            KeyCode::Char(' ') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                if !self.sms_text_buffer.is_empty() {
-                    // Show confirmation dialog
-                    self.sms_input_view.show_confirmation();
-                }
-            },
-            KeyCode::Enter => {
-                self.sms_text_buffer.push('\n');
-                self.sms_input_view.move_cursor_right(self.sms_text_buffer.len());
-            },
-            KeyCode::Backspace => {
-                if self.sms_input_view.cursor_position() > 0 {
-                    let pos = self.sms_input_view.cursor_position();
-                    self.sms_text_buffer.remove(pos - 1);
-                    self.sms_input_view.move_cursor_left();
-                }
-            },
-            KeyCode::Delete => {
-                if self.sms_input_view.cursor_position() < self.sms_text_buffer.len() {
-                    let pos = self.sms_input_view.cursor_position();
-                    self.sms_text_buffer.remove(pos);
-                }
-            },
-            KeyCode::Left => {
-                self.sms_input_view.move_cursor_left();
-            },
-            KeyCode::Right => {
-                self.sms_input_view.move_cursor_right(self.sms_text_buffer.len());
-            },
-            KeyCode::Home => {
-                self.sms_input_view.move_cursor_to_start();
-            },
-            KeyCode::End => {
-                self.sms_input_view.move_cursor_to_end(self.sms_text_buffer.len());
-            },
-            KeyCode::Char(c) => {
-                let pos = self.sms_input_view.cursor_position();
-                self.sms_text_buffer.insert(pos, c);
-                self.sms_input_view.move_cursor_right(self.sms_text_buffer.len());
-            },
-            _ => {}
-        }
-        false
-    }
-
-    fn handle_error(&mut self, key: KeyEvent, dismissible: bool) -> bool {
-        match key.code {
-            KeyCode::Esc if dismissible => {
-                self.app_state = AppState::InputPhone;
-                false
-            },
-            KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                true
-            },
-            _ => false
-        }
-    }
-
-    fn render(&mut self, frame: &mut Frame) {
-        let theme = self.theme_manager.current();
-
-        match &self.app_state {
-            AppState::InputPhone => {
-                self.phone_input_view.render(frame, &self.input_buffer, theme);
-            },
-            AppState::ViewMessages(phone_number) => {
-                self.messages_view.render(frame, phone_number, theme);
-            },
-            AppState::ComposeSms(phone_number) => {
-                let char_count = self.sms_text_buffer.chars().count();
-                self.sms_input_view.render(
-                    frame,
-                    phone_number,
-                    &self.sms_text_buffer,
-                    char_count,
-                    theme
-                );
-            },
-            AppState::Error { message, dismissible } => {
-                self.error_view.render(frame, message, *dismissible, theme);
-            }
-        }
-
-        // Render notifications on top of everything
-        self.notification_view.render(frame, theme);
+        Ok(())
     }
 }

@@ -1,15 +1,29 @@
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::{Alignment, Constraint, Layout};
 use ratatui::style::Style;
 use ratatui::widgets::{Block, BorderType, Clear, Paragraph, Wrap};
 use ratatui::Frame;
 
 use crate::theme::Theme;
+use crate::types::{AppState, KeyResponse};
 use super::centered_rect;
 
 pub struct ErrorView;
 impl ErrorView {
     pub fn new() -> Self {
         Self
+    }
+
+    pub fn handle_key(&mut self, key: KeyEvent, dismissible: bool) -> Option<KeyResponse> {
+        match key.code {
+            KeyCode::Esc if dismissible => {
+                Some(KeyResponse::SetAppState(AppState::InputPhone))
+            },
+            KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                Some(KeyResponse::Quit)
+            },
+            _ => None
+        }
     }
 
     pub fn render(&self, frame: &mut Frame, error_message: &str, dismissible: bool, theme: &Theme) {
