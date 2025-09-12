@@ -201,13 +201,13 @@ impl App {
             match key.code {
                 KeyCode::Char(' ') => {
                     // Dismiss all notifications
-                    self.notification_view.clear_all();
+                    self.notification_view.dismiss_oldest();
                     return false;
                 },
                 KeyCode::Enter => {
                     // Navigate to the most recent notification's conversation.
-                    if let Some(phone_number) = self.notification_view.first().and_then(|notification| notification.get_phone_number()) {
-                        self.notification_view.clear_all();
+                    if let Some(phone_number) = self.notification_view.get_first_phone_number() {
+                        self.notification_view.dismiss_first();
                         self.app_state = AppState::ViewMessages(phone_number);
                         self.key_debouncer.reset();
                     }

@@ -69,10 +69,6 @@ impl NotificationView {
         }
     }
 
-    pub fn first(&self) -> Option<&NotificationMessage> {
-        self.notifications.first()
-    }
-
     pub fn add_notification(&mut self, notification_type: NotificationType) {
         let notification = NotificationMessage {
             notification_type,
@@ -86,8 +82,23 @@ impl NotificationView {
         }
     }
 
-    pub fn clear_all(&mut self) {
-        self.notifications.clear();
+    /// Remove the first notification after jumping to it.
+    pub fn dismiss_first(&mut self) {
+        if !self.notifications.is_empty() {
+            self.notifications.remove(0);
+        }
+    }
+
+    /// Remove the last notification after pressing dismissal key.
+    pub fn dismiss_oldest(&mut self) {
+        if !self.notifications.is_empty() {
+            self.notifications.pop();
+        }
+    }
+
+    /// Get the first notifications phone number for view jumping.
+    pub fn get_first_phone_number(&self) -> Option<String> {
+        self.notifications.first().and_then(|notification| notification.get_phone_number())
     }
 
     pub fn has_notifications(&self) -> bool {
