@@ -2,6 +2,7 @@ pub mod error;
 pub mod messages_table;
 pub mod phone_input;
 pub mod sms_input;
+pub mod notification;
 
 use ratatui::layout::{Constraint, Layout, Rect};
 

@@ -13,7 +13,6 @@ impl ErrorView {
 
     pub fn render(&self, frame: &mut Frame, error_message: &str, theme: &Theme) {
         let area = centered_rect(60, 20, frame.area());
-
         frame.render_widget(Clear, area);
 
         let block = Block::bordered()

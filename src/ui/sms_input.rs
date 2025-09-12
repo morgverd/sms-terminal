@@ -53,7 +53,6 @@ impl SmsInputView {
         theme: &Theme
     ) {
         let area = centered_rect(70, 60, frame.area());
-
         frame.render_widget(Clear, area);
 
         let block = Block::bordered()

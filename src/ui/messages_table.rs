@@ -26,7 +26,7 @@ const ITEM_HEIGHT: usize = 4;
 const LOAD_THRESHOLD: usize = 5;
 const MESSAGES_PER_PAGE: u64 = 20;
 
-pub struct MessagesView {
+pub struct MessagesTableView {
     http_client: Arc<HttpClient>,
     state: TableState,
     messages: Vec<SmsMessage>,
@@ -37,9 +37,9 @@ pub struct MessagesView {
     current_offset: u64,
     total_messages: usize,
     error_message: Option<String>,
-    current_phone: String,
+    last_loaded_phone: Option<String>,
 }
-impl MessagesView {
+impl MessagesTableView {
     pub fn new(http_client: Arc<HttpClient>) -> Self {
         Self {
             http_client,
@@ -52,51 +52,43 @@ impl MessagesView {
             current_offset: 0,
             total_messages: 0,
             error_message: None,
-            current_phone: String::new(),
+            last_loaded_phone: None,
         }
     }
 
-    /// Set the target phone number to search for.
-    pub fn set_phone(&mut self, phone_number: &str) {
-        if self.current_phone != phone_number {
-            self.reset();
-            self.current_phone = phone_number.to_string();
-        }
+    /// Check if we need to load initial messages for a phone number
+    pub fn should_load_initial(&self, phone_number: &str) -> bool {
+        // Load if:
+        // 1. We haven't loaded anything yet for this number
+        // 2. The phone number has changed from what we last loaded
+        let needs_load = self.last_loaded_phone.as_ref() != Some(&phone_number.to_string());
+        needs_load && !self.is_loading
     }
 
-    /// Is there a phone number set, but no messages loaded?
-    pub fn should_load_initial(&self) -> bool {
-        self.messages.is_empty() && !self.is_loading && !self.current_phone.is_empty()
-    }
-
-    /// Load the next set of messages.
-    pub async fn load_messages(&mut self, phone_number: Option<&str>) -> Result<(), AppError> {
-
-        // If a phone number is directly provided, set it here too.
-        // This ensures the phone number always lines up what is stored.
-        let phone = match phone_number {
-            Some(p) => {
-                self.set_phone(p);
-                &self.current_phone
-            }
-            None => &self.current_phone,
-        };
-        if phone.is_empty() {
+    /// Load the next set of messages for the given phone number
+    pub async fn load_messages(&mut self, phone_number: &str) -> Result<(), AppError> {
+        if phone_number.is_empty() {
             return Err(AppError::NoPhoneNumber);
+        }
+
+        // If phone number changed, reset everything
+        if self.last_loaded_phone.as_ref() != Some(&phone_number.to_string()) {
+            self.reset_for_new_phone();
+            self.last_loaded_phone = Some(phone_number.to_string());
         }
 
         // Prevent multiple simultaneous loads
         if self.is_loading {
-            return Ok(())
+            return Ok(());
         }
 
-        // HTTP pagination woo!!!
+        // HTTP pagination
         let pagination = HttpPaginationOptions::default()
             .with_limit(MESSAGES_PER_PAGE)
             .with_offset(self.current_offset);
 
         self.is_loading = true;
-        match self.http_client.as_ref().get_messages(phone, Some(pagination)).await {
+        match self.http_client.as_ref().get_messages(phone_number, Some(pagination)).await {
             Ok(messages) => {
                 let new_messages: Vec<SmsMessage> = messages.iter().map(SmsMessage::from).collect();
 
@@ -138,14 +130,19 @@ impl MessagesView {
         }
     }
 
-    pub async fn reload(&mut self) -> Result<(), AppError> {
+    pub async fn reload(&mut self, phone_number: &str) -> Result<(), AppError> {
         self.reset_pagination();
-        self.load_messages(None).await
+        self.load_messages(phone_number).await
     }
 
     pub fn reset(&mut self) {
         self.reset_pagination();
-        self.current_phone.clear();
+        self.last_loaded_phone = None;
+    }
+
+    fn reset_for_new_phone(&mut self) {
+        self.reset_pagination();
+        // Don't clear last_loaded_phone here as it's managed by the caller
     }
 
     fn reset_pagination(&mut self) {
@@ -184,18 +181,19 @@ impl MessagesView {
         );
     }
 
-    async fn check_load_more(&mut self) {
+    pub async fn check_load_more(&mut self, phone_number: &str) -> Result<(), AppError> {
         // Don't load if already loading, have no more data, or no messages
         if !self.has_more || self.is_loading || self.messages.is_empty() {
-            return;
+            return Ok(());
         }
 
         if let Some(selected) = self.state.selected() {
             let load_point = self.messages.len().saturating_sub(LOAD_THRESHOLD);
             if selected >= load_point {
-                let _ = self.load_messages(None).await;
+                self.load_messages(phone_number).await?;
             }
         }
+        Ok(())
     }
 
     pub async fn next_row(&mut self) {
@@ -209,9 +207,6 @@ impl MessagesView {
         if next != current {
             self.state.select(Some(next));
             self.scroll_state = self.scroll_state.position(next * ITEM_HEIGHT);
-
-            // Only check for loading after selection has changed
-            self.check_load_more().await;
         }
     }
 
@@ -237,11 +232,12 @@ impl MessagesView {
         self.state.select_previous_column();
     }
 
-    pub fn current_phone(&self) -> &str {
-        &self.current_phone
-    }
+    pub fn add_live_message(&mut self, message: SmsMessage, phone_number: &str) {
+        // Only add if this view is for the same phone number
+        if self.last_loaded_phone.as_ref() != Some(&phone_number.to_string()) {
+            return;
+        }
 
-    pub fn add_live_message(&mut self, message: SmsMessage) {
         if self.messages.iter().any(|m| m.id == message.id) {
             return;
         }
@@ -261,13 +257,13 @@ impl MessagesView {
         self.messages.first().map(|m| m.id.clone())
     }
 
-    pub fn render(&mut self, frame: &mut Frame, theme: &Theme) {
+    pub fn render(&mut self, frame: &mut Frame, phone_number: &str, theme: &Theme) {
         let layout = Layout::vertical([Constraint::Min(5), Constraint::Length(5)]);
         let rects = layout.split(frame.area());
 
         self.render_table(frame, rects[0], theme);
         self.render_scrollbar(frame, rects[0]);
-        self.render_footer(frame, rects[1], &self.current_phone, theme);
+        self.render_footer(frame, rects[1], phone_number, theme);
 
         if let Some(ref error) = self.error_message {
             self.render_error_popup(frame, error, theme);

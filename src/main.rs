@@ -1,6 +1,6 @@
 use clap::Parser;
 use color_eyre::Result;
-use sms_client::config::ClientConfig;
+use sms_client::config::{ClientConfig, WebsocketConfig};
 
 mod app;
 mod error;
@@ -21,6 +21,9 @@ struct Arguments {
     pub http: Option<String>,
 
     #[arg(long)]
+    pub ws: Option<String>,
+
+    #[arg(long)]
     pub auth: Option<String>
 }
 
@@ -31,14 +34,18 @@ pub struct TerminalConfig {
 impl TerminalConfig {
     pub fn parse() -> Self {
         let arguments = Arguments::parse();
-        let config = ClientConfig::http_only(arguments.http.unwrap_or_else(|| "http://localhost:3000".to_string()));
+
+        // Build main SMS config set.
+        let mut config = ClientConfig::http_only(arguments.http.unwrap_or_else(|| "http://localhost:3000".to_string()));
+        if let Some(ws) = arguments.ws {
+            config = config.add_websocket(WebsocketConfig::new(ws));
+        }
+        if let Some(auth) = arguments.auth {
+            config = config.with_auth(auth)
+        }
 
         Self {
-            client: if let Some(auth) = arguments.auth {
-                config.with_auth(auth)
-            } else {
-                config
-            },
+            client: config,
             theme: arguments.theme.unwrap_or_default()
         }
     }

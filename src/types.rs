@@ -40,8 +40,8 @@ impl From<&SmsStoredMessage> for SmsMessage {
 #[derive(Debug, Clone, PartialEq)]
 pub enum AppState {
     InputPhone,
-    ViewMessages,
-    ComposeSms,
+    ViewMessages(String),
+    ComposeSms(String),
     Error(String),
 }
 
