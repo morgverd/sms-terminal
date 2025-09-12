@@ -26,7 +26,11 @@ pub enum NotificationType {
         connected: bool,
         reconnect: bool
     },
-    WebSocketDisabled
+    GenericMessage {
+        color: Color,
+        title: String,
+        message: String
+    }
 }
 
 #[derive(Clone)]
@@ -41,7 +45,7 @@ impl NotificationMessage {
             NotificationType::SendFailure { phone, .. } => Some(phone.clone()),
             NotificationType::OnlineStatus { .. } => None,
             NotificationType::WebSocketConnectionUpdate { .. } => None,
-            NotificationType::WebSocketDisabled => None
+            NotificationType::GenericMessage { .. } => None
         }
     }
 
@@ -56,7 +60,7 @@ impl NotificationMessage {
 
 struct NotificationStyle {
     icon: &'static str,
-    title: &'static str,
+    title: String,
     border_color: Color,
     title_color: Color
 }
@@ -130,7 +134,7 @@ impl NotificationView {
         match &notification.notification_type {
             NotificationType::IncomingMessage { .. } => NotificationStyle {
                 icon: "📨",
-                title: "New Message",
+                title: "New Message".to_string(),
                 border_color: theme.text_accent,
                 title_color: theme.text_accent
             },
@@ -142,14 +146,14 @@ impl NotificationView {
                 };
                 NotificationStyle {
                     icon,
-                    title: "Status Change",
+                    title: "Status Change".to_string(),
                     border_color: color,
                     title_color: color
                 }
             },
             NotificationType::SendFailure { .. } => NotificationStyle {
                 icon: "❌",
-                title: "Send Failed",
+                title: "Send Failed".to_string(),
                 border_color: Color::Red,
                 title_color: Color::Red
             },
@@ -161,16 +165,16 @@ impl NotificationView {
                 };
                 NotificationStyle {
                     icon,
-                    title,
+                    title: title.into(),
                     border_color: color,
                     title_color: color
                 }
             },
-            NotificationType::WebSocketDisabled => NotificationStyle {
+            NotificationType::GenericMessage { color, title, .. } => NotificationStyle {
                 icon: "❌",
-                title: "WebSocket Disabled",
-                border_color: Color::Yellow,
-                title_color: Color::Yellow
+                title: title.into(),
+                border_color: color.clone(),
+                title_color: color.clone()
             }
         }
     }
@@ -219,7 +223,7 @@ impl NotificationView {
             NotificationType::OnlineStatus { .. } => 3,
             NotificationType::SendFailure { .. } => unimplemented!(),
             NotificationType::WebSocketConnectionUpdate { .. } => 3,
-            NotificationType::WebSocketDisabled => 3
+            NotificationType::GenericMessage { .. } => 3
         };
 
         // Add extra height for empty line separator and controls hint if it's the top notification.
@@ -310,8 +314,8 @@ impl NotificationView {
                 };
                 lines.push(Line::from(Span::styled(status_text.to_string(), base_style)));
             },
-            NotificationType::WebSocketDisabled => {
-                lines.push(Line::from(Span::styled("Live updates will not show!", base_style)));
+            NotificationType::GenericMessage { message, .. } => {
+                lines.push(Line::from(Span::styled(message.clone(), base_style)));
             }
         }
 

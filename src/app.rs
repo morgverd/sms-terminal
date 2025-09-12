@@ -1,10 +1,10 @@
 use color_eyre::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::{DefaultTerminal, Frame};
-use std::sync::{Arc, RwLock};
 use std::time::Duration;
+use ratatui::style::Color;
 use sms_client::Client;
-use sms_client::types::{ModemStatusUpdateState, SmsStoredMessage};
+use sms_client::types::SmsStoredMessage;
 use sms_client::ws::types::WebsocketMessage;
 use tokio::sync::mpsc;
 
@@ -19,11 +19,11 @@ use crate::ui::phone_input::PhoneInputView;
 use crate::ui::sms_input::SmsInputView;
 
 #[derive(Debug, Clone)]
-pub enum LiveMessage {
+pub enum LiveEvent {
     NewMessage(SmsStoredMessage),
-    ModemStatusUpdate(ModemStatusUpdateState, ModemStatusUpdateState),
     SendFailure(String),
-    WebSocketConnectionUpdate(bool, bool)
+    ShowNotification(NotificationType),
+    ShowError(String)
 }
 
 pub struct App {
@@ -37,8 +37,8 @@ pub struct App {
     sms_input_view: SmsInputView,
     error_view: ErrorView,
     notification_view: NotificationView,
-    message_receiver: mpsc::UnboundedReceiver<LiveMessage>,
-    message_sender: mpsc::UnboundedSender<LiveMessage>,
+    message_receiver: mpsc::UnboundedReceiver<LiveEvent>,
+    message_sender: mpsc::UnboundedSender<LiveEvent>,
     sms_client: Option<Client>
 }
 impl App {
@@ -71,12 +71,17 @@ impl App {
 
             // Show a notification informing the user that their websocket
             // is disabled and therefore live updates will not work.
-            self.notification_view.add_notification(NotificationType::WebSocketDisabled);
+            let notification = NotificationType::GenericMessage {
+                color: Color::Yellow,
+                title: "WebSocket Disabled".to_string(),
+                message: "Live updates will not show!".to_string(),
+            };
+            self.notification_view.add_notification(notification);
         }
 
         loop {
             terminal.draw(|frame| self.render(frame))?;
-            self.process_live_messages();
+            self.process_live_events();
             self.handle_state_transitions().await;
 
             if event::poll(Duration::from_millis(100))? {
@@ -94,32 +99,44 @@ impl App {
     }
 
     async fn start_sms_websocket(&self, client: &Client) {
-        let sender = self.message_sender.clone();
+        let ws_sender = self.message_sender.clone();
         client.on_message_simple(move |message| {
             match message {
                 WebsocketMessage::IncomingMessage(sms) | WebsocketMessage::OutgoingMessage(sms) => {
-                    let _ = sender.send(LiveMessage::NewMessage(sms));
+                    let _ = ws_sender.send(LiveEvent::NewMessage(sms));
                 },
                 WebsocketMessage::ModemStatusUpdate { previous, current } => {
-                    let _ = sender.send(LiveMessage::ModemStatusUpdate(previous, current));
+                    let notification = NotificationType::OnlineStatus { previous, current };
+                    let _ = ws_sender.send(LiveEvent::ShowNotification(notification));
                 },
                 WebsocketMessage::WebsocketConnectionUpdate { connected, reconnect } => {
-                    let _ = sender.send(LiveMessage::WebSocketConnectionUpdate(connected, reconnect));
-                }
+                    let notification = NotificationType::WebSocketConnectionUpdate { connected, reconnect };
+                    let _ = ws_sender.send(LiveEvent::ShowNotification(notification));
+                },
                 _ => { }
             }
         })
         .await
         .expect("Failed to create websocket listener!");
 
-        // Finally start non-blocking SMS client.
-        client.start_background_websocket().await.expect("Failed to start websocket!");
+        // Create websocket worker task.
+        let client = client.clone();
+        let task_sender = self.message_sender.clone();
+        tokio::spawn(async move {
+
+            // Handle early termination or errors on starting.
+            let error_message = match client.start_blocking_websocket().await {
+                Ok(_) => "The WebSocket has been terminated!".to_string(),
+                Err(e) => e.to_string()
+            };
+            let _ = task_sender.send(LiveEvent::ShowError(error_message));
+        });
     }
 
-    fn process_live_messages(&mut self) {
+    fn process_live_events(&mut self) {
         while let Ok(msg) = self.message_receiver.try_recv() {
             match msg {
-                LiveMessage::NewMessage(sms_message) => {
+                LiveEvent::NewMessage(sms_message) => {
 
                     // Only add the message if we're viewing messages for the same phone number.
                     let msg = SmsMessage::from(&sms_message);
@@ -142,15 +159,13 @@ impl App {
                         self.notification_view.add_notification(notification);
                     }
                 },
-                LiveMessage::ModemStatusUpdate(previous, current) => {
-                    let notification = NotificationType::OnlineStatus { previous, current };
-                    self.notification_view.add_notification(notification);
+                LiveEvent::SendFailure(_) => unimplemented!("Oops!"),
+                LiveEvent::ShowNotification(notification) => {
+                    self.notification_view.add_notification(notification)
                 },
-                LiveMessage::WebSocketConnectionUpdate(connected, reconnect) => {
-                    let notification = NotificationType::WebSocketConnectionUpdate { connected, reconnect };
-                    self.notification_view.add_notification(notification);
-                },
-                LiveMessage::SendFailure(_) => unimplemented!("Oops!")
+                LiveEvent::ShowError(error_message) => {
+                    self.app_state = AppState::Error(error_message);
+                }
             }
         }
     }
