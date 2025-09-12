@@ -5,6 +5,7 @@ use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use sms_client::Client;
 use sms_client::types::{ModemStatusUpdateState, SmsStoredMessage};
+use sms_client::ws::types::WebsocketMessage;
 use tokio::sync::mpsc;
 
 use crate::TerminalConfig;
@@ -87,45 +88,48 @@ impl App {
 
     async fn spawn_live_message_listener(&self) {
         let sender = self.message_sender.clone();
-        // self.sms_client
-        //     .on_message_simple(move |message| {
-        //         match message {
-        //             WebsocketMessage::IncomingMessage(sms) | WebsocketMessage::OutgoingMessage(sms) => {
-        //                 let _ = sender.send(LiveMessage::NewMessage(sms));
-        //             },
-        //             WebsocketMessage::ModemStatusUpdate { previous, current } => {
-        //                 let _ = sender.send(LiveMessage::ModemStatusUpdate(previous, current));
-        //             },
-        //             WebsocketMessage::WebsocketConnectionUpdate { connected, reconnect } => {
-        //                 let _ = sender.send(LiveMessage::WebSocketConnectionUpdate(connected, reconnect));
-        //             }
-        //             _ => { }
-        //         }
-        //     })
-        //     .await
-        //     .expect("Failed to create websocket listener!");
+        self.sms_client
+            .on_message_simple(move |message| {
+                match message {
+                    WebsocketMessage::IncomingMessage(sms) | WebsocketMessage::OutgoingMessage(sms) => {
+                        let _ = sender.send(LiveMessage::NewMessage(sms));
+                    },
+                    WebsocketMessage::ModemStatusUpdate { previous, current } => {
+                        let _ = sender.send(LiveMessage::ModemStatusUpdate(previous, current));
+                    },
+                    WebsocketMessage::WebsocketConnectionUpdate { connected, reconnect } => {
+                        let _ = sender.send(LiveMessage::WebSocketConnectionUpdate(connected, reconnect));
+                    }
+                    _ => { }
+                }
+            })
+            .await
+            .expect("Failed to create websocket listener!");
+
+        self.sms_client.start_background_websocket().await.expect("Failed to start websocket!");
+
+        // tokio::spawn(async move {
+        //     tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+        //     let _ = sender.send(LiveMessage::WebSocketConnectionUpdate(true, false));
         //
-        // self.sms_client.start_background_websocket().await.expect("Failed to start websocket!");
-
-        tokio::spawn(async move {
-            let mut i = 0;
-            loop {
-                let msg = SmsStoredMessage {
-                    message_id: 100 + i,
-                    phone_number: "2732".to_string(),
-                    message_content: "hello there, this is a rather long message to test that text wrapping continues to work!\n\rEven if I add a carriage return that doesn't matter one bit!".to_string(),
-                    message_reference: None,
-                    is_outgoing: false,
-                    status: "GoodLike".to_string(),
-                    created_at: None,
-                    completed_at: None,
-                };
-
-                let _ = sender.send(LiveMessage::NewMessage(msg));
-                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-                i = i + 1;
-            }
-        });
+        //     let mut i = 0;
+        //     // loop {
+        //         tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+        //         let msg = SmsStoredMessage {
+        //             message_id: 110 + i,
+        //             phone_number: "2732".to_string(),
+        //             message_content: "Your balance is £0.00, Your total remaining bundle allowance is unlimited minutes, unlimited sms and 0 MB of data".to_string(),
+        //             message_reference: None,
+        //             is_outgoing: false,
+        //             status: "GoodLike".to_string(),
+        //             created_at: None,
+        //             completed_at: None,
+        //         };
+        //
+        //         let _ = sender.send(LiveMessage::NewMessage(msg));
+        //     //     i = i + 1;
+        //     // }
+        // });
     }
 
     fn process_live_messages(&mut self) {
@@ -134,10 +138,12 @@ impl App {
                 LiveMessage::NewMessage(sms_message) => {
 
                     // Show a notification for incoming SMS messages.
+                    // Use the SMSMessage variant for content as it's sanitized.
+                    let msg = SmsMessage::from(&sms_message);
                     if !sms_message.is_outgoing {
                         let notification = NotificationType::IncomingMessage {
                             phone: sms_message.phone_number.clone(),
-                            content: sms_message.message_content.clone()
+                            content: msg.content.clone()
                         };
                         self.notification_view.add_notification(notification);
                     }
@@ -145,7 +151,6 @@ impl App {
                     // Only add the message if we're viewing messages for the same phone number.
                     if let AppState::ViewMessages(current_phone) = &self.app_state {
                         if current_phone == sms_message.phone_number.as_str() {
-                            let msg = SmsMessage::from(&sms_message);
                             self.messages_view.write().unwrap().add_live_message(msg, current_phone);
                         }
                     }
@@ -205,13 +210,16 @@ impl App {
                     return false;
                 },
                 KeyCode::Enter => {
-                    // Navigate to the most recent notification's conversation.
-                    if let Some(phone_number) = self.notification_view.get_first_phone_number() {
+                    // Navigate to the most recent notification's conversation if it can be viewed
+                    if let Some(phone_number) = self.notification_view.get_first()
+                        .filter(|n| n.can_view())
+                        .and_then(|n| n.get_phone_number())
+                    {
                         self.notification_view.dismiss_first();
                         self.app_state = AppState::ViewMessages(phone_number);
                         self.key_debouncer.reset();
+                        return false;
                     }
-                    return false;
                 },
                 _ => { }
             }

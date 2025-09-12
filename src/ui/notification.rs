@@ -42,6 +42,14 @@ impl NotificationMessage {
             NotificationType::WebSocketConnectionUpdate { .. } => None
         }
     }
+
+    pub fn can_view(&self) -> bool {
+        matches!(self.notification_type, NotificationType::IncomingMessage { .. })
+    }
+
+    pub fn is_expired(&self, display_duration: Duration) -> bool {
+        self.timestamp.elapsed() > display_duration
+    }
 }
 
 struct NotificationStyle {
@@ -49,6 +57,12 @@ struct NotificationStyle {
     title: &'static str,
     border_color: Color,
     title_color: Color
+}
+
+struct RenderContext<'a> {
+    theme: &'a Theme,
+    opacity_modifier: Modifier,
+    is_top: bool
 }
 
 pub struct NotificationView {
@@ -82,6 +96,11 @@ impl NotificationView {
         }
     }
 
+    /// Remove expired notifications automatically.
+    pub fn remove_expired(&mut self) {
+        self.notifications.retain(|notification| !notification.is_expired(self.display_duration));
+    }
+
     /// Remove the first notification after jumping to it.
     pub fn dismiss_first(&mut self) {
         if !self.notifications.is_empty() {
@@ -97,8 +116,8 @@ impl NotificationView {
     }
 
     /// Get the first notifications phone number for view jumping.
-    pub fn get_first_phone_number(&self) -> Option<String> {
-        self.notifications.first().and_then(|notification| notification.get_phone_number())
+    pub fn get_first(&self) -> Option<&NotificationMessage> {
+        self.notifications.first()
     }
 
     pub fn has_notifications(&self) -> bool {
@@ -148,7 +167,8 @@ impl NotificationView {
         }
     }
 
-    pub fn render(&self, frame: &mut Frame, theme: &Theme) {
+    pub fn render(&mut self, frame: &mut Frame, theme: &Theme) {
+        self.remove_expired();
         if self.notifications.is_empty() {
             return;
         }
@@ -158,27 +178,24 @@ impl NotificationView {
         let mut is_top = true;
 
         for notification in self.notifications.iter() {
-            let style = self.get_notification_style(notification, theme);
-            let height = self.calculate_notification_height(notification, is_top);
+            let ctx = RenderContext {
+                theme,
+                opacity_modifier: if is_top { Modifier::empty() } else { Modifier::DIM },
+                is_top
+            };
 
             // Position notifications from top-right
             let width = area.width.min(55);
             let x = area.width.saturating_sub(width).saturating_sub(1);
             let y = y_offset;
 
+            let height = self.calculate_notification_height(notification, is_top);
             if y + height > area.height.saturating_sub(1) {
                 break;
             }
 
-            // Apply fade effect for older notifications
-            let opacity_modifier = if is_top {
-                Modifier::empty()
-            } else {
-                Modifier::DIM
-            };
-
             let popup_area = Rect::new(x, y, width, height);
-            self.render_notification(frame, notification, popup_area, &style, theme, opacity_modifier, is_top);
+            self.render_notification(frame, notification, popup_area, &ctx);
 
             y_offset += height + 1;
             is_top = false;
@@ -196,7 +213,7 @@ impl NotificationView {
             NotificationType::WebSocketConnectionUpdate { .. } => 3
         };
 
-        // Add extra height for empty line separator and controls hint if its the top notification.
+        // Add extra height for empty line separator and controls hint if it's the top notification.
         if is_top {
             base_height + 2
         } else {
@@ -209,25 +226,24 @@ impl NotificationView {
         frame: &mut Frame,
         notification: &NotificationMessage,
         area: Rect,
-        style: &NotificationStyle,
-        theme: &Theme,
-        opacity_modifier: Modifier,
-        is_top: bool,
+        ctx: &RenderContext
     ) {
         frame.render_widget(Clear, area);
+
+        let style = self.get_notification_style(notification, ctx.theme);
         let title = format!(" {} {} ", style.icon, style.title);
         let block = Block::bordered()
             .title(title)
             .title_style(Style::default().fg(style.title_color))
             .title_alignment(Alignment::Left)
             .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(style.border_color).add_modifier(opacity_modifier));
+            .border_style(Style::default().fg(style.border_color).add_modifier(ctx.opacity_modifier));
 
-        let lines = self.build_notification_content(notification, theme, opacity_modifier, is_top);
+        let lines = self.build_notification_content(notification, ctx);
         let paragraph = Paragraph::new(lines)
             .block(block)
             .wrap(Wrap { trim: true })
-            .style(Style::default().add_modifier(opacity_modifier));
+            .style(Style::default().add_modifier(ctx.opacity_modifier));
 
         frame.render_widget(paragraph, area);
     }
@@ -235,14 +251,12 @@ impl NotificationView {
     fn build_notification_content(
         &self,
         notification: &NotificationMessage,
-        theme: &Theme,
-        opacity_modifier: Modifier,
-        is_top: bool,
+        ctx: &RenderContext
     ) -> Vec<Line<'static>> {
         let mut lines = Vec::new();
-        let base_style = Style::default().fg(theme.text_primary).add_modifier(opacity_modifier);
-        let accent_style = Style::default().fg(theme.text_accent).add_modifier(opacity_modifier);
-        let muted_style = Style::default().fg(theme.text_muted).add_modifier(opacity_modifier);
+        let base_style = Style::default().fg(ctx.theme.text_primary).add_modifier(ctx.opacity_modifier);
+        let accent_style = Style::default().fg(ctx.theme.text_accent).add_modifier(ctx.opacity_modifier);
+        let muted_style = Style::default().fg(ctx.theme.text_muted).add_modifier(ctx.opacity_modifier);
 
         match &notification.notification_type {
             NotificationType::IncomingMessage { phone, content } => {
@@ -290,11 +304,19 @@ impl NotificationView {
         }
 
         // Show controls hint only for the most recent notification
-        if is_top {
+        if ctx.is_top {
             lines.push(Line::raw(""));
+
+            // Only show "(Enter) view" for notifications that can be viewed
+            let controls_text = if notification.can_view() {
+                "(Space) dismiss • (Enter) view"
+            } else {
+                "(Space) dismiss"
+            };
+
             lines.push(Line::from(Span::styled(
-                "(Space) dismiss • (Enter) view",
-                Style::default().fg(theme.text_muted).add_modifier(Modifier::ITALIC)
+                controls_text,
+                Style::default().fg(ctx.theme.text_muted).add_modifier(Modifier::ITALIC)
             )));
         }
 

@@ -7,8 +7,7 @@ license = "MIT"
 edition = "2024"
 
 [dependencies]
-#sms-client = { git = "https://github.com/morgverd/sms-client.git", features = ["websocket"] }
-sms-client = { path = "../sms-client", features = ["websocket"] }
+sms-client = { git = "https://github.com/morgverd/sms-client.git", features = ["websocket"] }
 color-eyre = "0.6.3"
 crossterm = { version = "0.29.0", features = ["event-stream"] }
 ratatui = "0.29.0"
@@ -17,3 +16,5 @@ unicode-width = "0.2"
 chrono = "0.4.42"
 textwrap = "0.16.2"
 clap = { version = "4.5.47", features = ["derive"] }
+ansi-escape-sequences = "0.1.0"
+unicode-general-category = "1.0.0"

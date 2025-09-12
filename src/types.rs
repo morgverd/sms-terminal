@@ -2,6 +2,8 @@ use chrono::{Local, TimeZone};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use sms_client::types::SmsStoredMessage;
 use std::time::{Duration, Instant};
+use ansi_escape_sequences::strip_ansi;
+use unicode_general_category::{get_general_category, GeneralCategory};
 
 /// A shortened version of a StoredSmsMessage that only
 /// stores the information used in messages_table.
@@ -10,7 +12,7 @@ pub struct SmsMessage {
     pub id: String,
     pub direction: String,
     pub timestamp: String,
-    pub content: String,
+    pub content: String
 }
 impl SmsMessage {
     pub fn ref_array(&self) -> [&String; 4] {
@@ -32,7 +34,20 @@ impl From<&SmsStoredMessage> for SmsMessage {
             id: value.message_id.to_string(),
             direction: if value.is_outgoing { "← OUT" } else { "→ IN" }.to_string(),
             timestamp,
-            content: value.message_content.clone()
+
+            // Remove all control characters from being displayed.
+            // This includes newlines etc.
+            content: strip_ansi(&value.message_content)
+                .chars()
+                .filter(|c| !c.is_control()
+                    && !matches!(
+                        get_general_category(*c),
+                        GeneralCategory::Format
+                            | GeneralCategory::Control
+                            | GeneralCategory::Unassigned
+                    )
+                )
+                .collect(),
         }
     }
 }
@@ -42,13 +57,13 @@ pub enum AppState {
     InputPhone,
     ViewMessages(String),
     ComposeSms(String),
-    Error(String),
+    Error(String)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct KeyPress {
     pub code: KeyCode,
-    pub modifiers: KeyModifiers,
+    pub modifiers: KeyModifiers
 }
 impl From<KeyEvent> for KeyPress {
     fn from(key: KeyEvent) -> Self {
