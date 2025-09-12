@@ -105,7 +105,7 @@ impl SmsInputView {
         frame.render_widget(char_counter, layout[1]);
 
         // Help text
-        let help = Paragraph::new("(Esc) cancel | (Enter) new line | (Ctrl+Enter) send")
+        let help = Paragraph::new("(Esc) cancel | (Enter) new line | (Ctrl+Space) send")
             .style(theme.secondary_style())
             .alignment(Alignment::Center);
         frame.render_widget(help, layout[2]);

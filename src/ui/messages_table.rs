@@ -250,10 +250,6 @@ impl MessagesView {
         self.total_messages = self.messages.len();
         self.update_constraints();
         self.scroll_state = ScrollbarState::new((self.messages.len() - 1) * ITEM_HEIGHT);
-
-        if self.state.selected() == Some(0) {
-            self.state.select(Some(0));
-        }
     }
 
     pub fn set_error_message(&mut self, error: Option<String>) {

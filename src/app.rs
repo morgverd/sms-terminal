@@ -139,15 +139,18 @@ impl App {
     }
 
     async fn handle_key_event(&mut self, key: KeyEvent) -> bool {
+        // Debounce all key presses.
+        let key_press = KeyPress::from(key);
+        if !self.key_debouncer.should_process(&key_press) {
+            return false;
+        }
+
         // Global theme switching with Shift+T. This was such a pain to make
         // but a coworker said it looked cool, so I stuck with it throughout.
         // This MUST remain uppercase T, since shift modifies it before here!
         if key.code == KeyCode::Char('T') && key.modifiers.contains(KeyModifiers::SHIFT) {
-            let key_press = KeyPress::from(key);
-            if self.key_debouncer.should_process(&key_press) {
-                self.theme_manager.next();
-                return false;
-            }
+            self.theme_manager.next();
+            return false;
         }
 
         match &self.app_state {
@@ -162,69 +165,46 @@ impl App {
         match key.code {
             // Make sure control is held so it's not just a letter input into text box.
             KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                let key_press = KeyPress::from(key);
-                if self.key_debouncer.should_process(&key_press) {
-                    return true;
-                }
+                return true;
             },
             KeyCode::Enter => {
-                let key_press = KeyPress::from(key);
-                if self.key_debouncer.should_process(&key_press) {
-                    // Check if a contact is selected first
-                    if let Some(selected_phone) = self.phone_input_view.get_selected_phone() {
-                        self.input_buffer = selected_phone;
-                    }
+                // Check if a contact is selected first
+                if let Some(selected_phone) = self.phone_input_view.get_selected_phone() {
+                    self.input_buffer = selected_phone;
+                }
 
-                    if !self.input_buffer.is_empty() {
-                        self.messages_view.write().unwrap().set_phone(&self.input_buffer);
-                        self.app_state = AppState::ViewMessages;
-                        self.key_debouncer.reset();
-                    }
+                if !self.input_buffer.is_empty() {
+                    self.messages_view.write().unwrap().set_phone(&self.input_buffer);
+                    self.app_state = AppState::ViewMessages;
+                    self.key_debouncer.reset();
                 }
             },
             KeyCode::Down => {
-                let key_press = KeyPress::from(key);
-                if self.key_debouncer.should_process(&key_press) {
-                    self.phone_input_view.select_next();
-                    // Clear input buffer when navigating contacts
-                    self.input_buffer.clear();
-                }
+                self.phone_input_view.select_next();
+                // Clear input buffer when navigating contacts
+                self.input_buffer.clear();
             },
             KeyCode::Up => {
-                let key_press = KeyPress::from(key);
-                if self.key_debouncer.should_process(&key_press) {
-                    self.phone_input_view.select_previous();
-                    // Clear input buffer when navigating contacts
-                    self.input_buffer.clear();
-                }
+                self.phone_input_view.select_previous();
+                // Clear input buffer when navigating contacts
+                self.input_buffer.clear();
             },
             KeyCode::Backspace => {
-                let key_press = KeyPress::from(key);
-                if self.key_debouncer.should_process(&key_press) {
-                    self.input_buffer.pop();
-                    // Clear selection when typing
-                    self.phone_input_view.clear_selection();
-                }
+                self.input_buffer.pop();
+                // Clear selection when typing
+                self.phone_input_view.clear_selection();
             },
             KeyCode::Char(c) => {
-                if key.kind == KeyEventKind::Press && self.input_buffer.len() < 20 {
-                    self.input_buffer.push(c);
-                    // Clear selection when typing
-                    self.phone_input_view.clear_selection();
-                }
-            }
+                self.input_buffer.push(c);
+                // Clear selection when typing
+                self.phone_input_view.clear_selection();
+            },
             _ => {}
         }
         false
     }
 
     async fn handle_view_messages(&mut self, key: KeyEvent) -> bool {
-        let key_press = KeyPress::from(key);
-        if !self.key_debouncer.should_process(&key_press) {
-            return false;
-        }
-
-        // TODO: Make a state cleanup fn?
         match key.code {
             KeyCode::Esc => {
                 self.input_buffer.clear();
@@ -276,9 +256,9 @@ impl App {
                 self.app_state = AppState::ViewMessages;
                 self.sms_text_buffer.clear();
             },
-            KeyCode::Enter if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            KeyCode::Char(' ') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 if !self.sms_text_buffer.is_empty() {
-                    // TODO: Implement actual SMS sending
+                    // TODO: Show confirmation popup, then send SMS.
                     self.app_state = AppState::ViewMessages;
                     self.sms_text_buffer.clear();
                 }
@@ -327,13 +307,7 @@ impl App {
     }
 
     fn handle_error(&mut self, key: KeyEvent) -> bool {
-        if key.code == KeyCode::Esc {
-            let key_press = KeyPress::from(key);
-            if self.key_debouncer.should_process(&key_press) {
-                return true;
-            }
-        }
-        false
+        key.code == KeyCode::Esc
     }
 
     fn render(&mut self, frame: &mut Frame) {
