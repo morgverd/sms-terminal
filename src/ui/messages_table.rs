@@ -15,6 +15,7 @@ use unicode_width::UnicodeWidthStr;
 use crate::error::{AppError, AppResult};
 use crate::theme::Theme;
 use crate::types::{AppState, KeyResponse, SmsMessage};
+use crate::ui::View;
 
 const INFO_TEXT: [&str; 2] = [
     "(↑/↓) navigate | (←/→) columns | (Ctrl+r) order",
@@ -54,11 +55,6 @@ impl MessagesTableView {
         }
     }
 
-    pub async fn load(&mut self, phone_number: &str, reversed: bool) -> AppResult<()> {
-        self.reversed = reversed;
-        self.reload(phone_number).await
-    }
-
     pub fn add_live_message(&mut self, message: SmsMessage) {
         if self.messages.iter().any(|m| m.id == message.id) {
             return;
@@ -68,59 +64,6 @@ impl MessagesTableView {
         self.total_messages = self.messages.len();
         self.update_constraints();
         self.scroll_state = ScrollbarState::new((self.messages.len() - 1) * ITEM_HEIGHT);
-    }
-
-    pub async fn handle_key(&mut self, key: KeyEvent, phone_number: &str) -> Option<KeyResponse> {
-        match key.code {
-            KeyCode::Esc => {
-                self.reset();
-                return Some(KeyResponse::SetAppState(AppState::InputPhone));
-            },
-            KeyCode::Char('c') => {
-                let state = AppState::compose_sms(phone_number.to_string());
-                return Some(KeyResponse::SetAppState(state));
-            },
-            KeyCode::Char('r') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.reset();
-                let state = AppState::ViewMessages { phone_number: phone_number.to_string(), reversed: !self.reversed };
-                return Some(KeyResponse::SetAppState(state));
-            },
-            KeyCode::Char('r') => {
-                match self.reload(phone_number).await {
-                    Ok(()) => {},
-                    Err(e) => {
-                        return Some(KeyResponse::SetAppState(AppState::from(e)));
-                    }
-                }
-            },
-            KeyCode::Down => {
-                self.next_row().await;
-                if let Err(e) = self.check_load_more(phone_number).await {
-                    return Some(KeyResponse::SetAppState(AppState::from(e)));
-                }
-            },
-            KeyCode::Up => {
-                self.previous_row().await;
-            },
-            KeyCode::Right => {
-                self.next_column();
-            },
-            KeyCode::Left => {
-                self.previous_column();
-            },
-            _ => {}
-        }
-
-        None
-    }
-
-    pub fn render(&mut self, frame: &mut Frame, phone_number: &str, theme: &Theme) {
-        let layout = Layout::vertical([Constraint::Min(5), Constraint::Length(5)]);
-        let rects = layout.split(frame.area());
-
-        self.render_table(frame, rects[0], theme);
-        self.render_scrollbar(frame, rects[0]);
-        self.render_footer(frame, rects[1], phone_number, theme);
     }
 
     fn reset(&mut self) {
@@ -385,5 +328,65 @@ impl MessagesTableView {
                     .border_style(theme.border_focused_style()),
             );
         frame.render_widget(info_footer, area);
+    }
+}
+impl View for MessagesTableView {
+    type Context = (String, bool);
+
+    async fn load(&mut self, ctx: Self::Context) -> AppResult<()> {
+        self.reversed = ctx.1;
+        self.reload(ctx.0.as_str()).await
+    }
+
+    async fn handle_key(&mut self, key: KeyEvent, ctx: Self::Context) -> Option<KeyResponse> {
+        match key.code {
+            KeyCode::Esc => {
+                self.reset();
+                return Some(KeyResponse::SetAppState(AppState::InputPhone));
+            },
+            KeyCode::Char('c') => {
+                let state = AppState::compose_sms(ctx.0.to_string());
+                return Some(KeyResponse::SetAppState(state));
+            },
+            KeyCode::Char('r') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.reset();
+                let state = AppState::ViewMessages { phone_number: ctx.0.to_string(), reversed: !self.reversed };
+                return Some(KeyResponse::SetAppState(state));
+            },
+            KeyCode::Char('r') => {
+                match self.reload(ctx.0.as_str()).await {
+                    Ok(()) => {},
+                    Err(e) => {
+                        return Some(KeyResponse::SetAppState(AppState::from(e)));
+                    }
+                }
+            },
+            KeyCode::Down => {
+                self.next_row().await;
+                if let Err(e) = self.check_load_more(ctx.0.as_str()).await {
+                    return Some(KeyResponse::SetAppState(AppState::from(e)));
+                }
+            },
+            KeyCode::Up => {
+                self.previous_row().await;
+            },
+            KeyCode::Right => {
+                self.next_column();
+            },
+            KeyCode::Left => {
+                self.previous_column();
+            },
+            _ => {}
+        }
+
+        None
+    }
+    fn render(&mut self, frame: &mut Frame, theme: &Theme, ctx: Self::Context) {
+        let layout = Layout::vertical([Constraint::Min(5), Constraint::Length(5)]);
+        let rects = layout.split(frame.area());
+
+        self.render_table(frame, rects[0], theme);
+        self.render_scrollbar(frame, rects[0]);
+        self.render_footer(frame, rects[1], ctx.0.as_str(), theme);
     }
 }

@@ -5,196 +5,29 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Clear, Paragraph, Wrap};
 use ratatui::Frame;
 use ratatui::style::palette::tailwind;
-use sms_client::http::types::HttpOutgoingSmsMessage;
-
+use crate::error::AppResult;
 use crate::theme::Theme;
-use crate::types::{AppState, KeyResponse};
-use super::centered_rect;
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum ConfirmationState {
-    None,
-    Confirming { selected_yes: bool }
-}
+use crate::types::{AppState, KeyResponse, Modal};
+use crate::ui::{centered_rect, View};
+use crate::ui::dialog::ConfirmationDialog;
 
 pub struct SmsInputView {
     cursor_position: usize,
-    confirmation_state: ConfirmationState,
     sms_text_buffer: String,
     is_sending: bool
 }
 impl SmsInputView {
+
     pub fn new() -> Self {
         Self {
             cursor_position: 0,
-            confirmation_state: ConfirmationState::None,
             sms_text_buffer: String::new(),
             is_sending: false
         }
     }
 
-    pub fn load(&mut self) {
-        self.cursor_position = 0;
-        self.is_sending = false;
-        self.sms_text_buffer.clear();
-        self.hide_confirmation();
-    }
-
-    pub fn handle_key(&mut self, key: KeyEvent, phone_number: &str) -> Option<KeyResponse> {
-        // Ignore all keyboard input while sending the message
-        if self.is_sending {
-            return None;
-        }
-
-        // If confirmation dialog is showing, handle its input first
-        if self.is_confirming() {
-            match key.code {
-                KeyCode::Esc => {
-                    self.hide_confirmation();
-                },
-                KeyCode::Left | KeyCode::Right => {
-                    self.toggle_confirmation_selection();
-                },
-                KeyCode::Enter => {
-                    if matches!(self.confirmation_state, ConfirmationState::Confirming { selected_yes: true }) {
-
-                        // Use a simple outgoing message with target from state and message buffer
-                        let message = HttpOutgoingSmsMessage::simple_message(
-                            phone_number.to_string(),
-                            self.sms_text_buffer.clone()
-                        );
-
-                        // Return to messages view state afterward
-                        self.is_sending = true;
-                        let state = AppState::view_messages(phone_number.to_string());
-                        return Some(KeyResponse::SendMessage(message, state));
-                    }
-                    self.hide_confirmation();
-                },
-                _ => {}
-            }
-            return None;
-        }
-
-        // Normal SMS input handling
-        match key.code {
-            KeyCode::Esc => {
-                let state = AppState::view_messages(phone_number.to_string());
-                self.sms_text_buffer.clear();
-                return Some(KeyResponse::SetAppState(state));
-            },
-            KeyCode::Char(' ') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                if !self.sms_text_buffer.is_empty() {
-                    // Show confirmation dialog
-                    self.show_confirmation();
-                }
-            },
-            KeyCode::Enter => {
-                self.sms_text_buffer.push('\n');
-                self.move_cursor_right(self.sms_text_buffer.len());
-            },
-            KeyCode::Backspace => {
-                if self.cursor_position > 0 {
-                    let pos = self.cursor_position;
-                    self.sms_text_buffer.remove(pos - 1);
-                    self.move_cursor_left();
-                }
-            },
-            KeyCode::Delete => {
-                if self.cursor_position < self.sms_text_buffer.len() {
-                    let pos = self.cursor_position;
-                    self.sms_text_buffer.remove(pos);
-                }
-            },
-            KeyCode::Left => {
-                self.move_cursor_left();
-            },
-            KeyCode::Right => {
-                self.move_cursor_right(self.sms_text_buffer.len());
-            },
-            KeyCode::Home => {
-                self.move_cursor_to_start();
-            },
-            KeyCode::End => {
-                self.move_cursor_to_end(self.sms_text_buffer.len());
-            },
-            KeyCode::Char(c) => {
-                let pos = self.cursor_position;
-                self.sms_text_buffer.insert(pos, c);
-                self.move_cursor_right(self.sms_text_buffer.len());
-            },
-            _ => {}
-        }
-
-        None
-    }
-
-    pub fn render(
-        &self,
-        frame: &mut Frame,
-        phone_number: &str,
-        theme: &Theme
-    ) {
-        let area = centered_rect(70, 60, frame.area());
-        frame.render_widget(Clear, area);
-
-        let block = Block::bordered()
-            .title(format!(" Compose SMS to {} ", phone_number))
-            .title_alignment(Alignment::Center)
-            .border_type(BorderType::Rounded)
-            .border_style(theme.border_focused_style());
-
-        let inner = block.inner(area);
-        frame.render_widget(block, area);
-
-        let layout = Layout::vertical([
-            Constraint::Min(10),     // Text area
-            Constraint::Length(2),   // Character count
-            Constraint::Length(2),   // Help text
-        ])
-            .split(inner);
-
-        // Text area with cursor
-        let text_with_cursor = self.render_text_with_cursor(theme);
-
-        let text_area = Paragraph::new(text_with_cursor)
-            .style(theme.input_style())
-            .block(
-                Block::bordered()
-                    .border_style(theme.border_focused_style())
-                    .border_type(BorderType::Rounded)
-            )
-            .wrap(Wrap { trim: false })
-            .scroll((0, 0));
-
-        frame.render_widget(text_area, layout[0]);
-
-        // Character counter
-        let char_count = self.sms_text_buffer.chars().count();
-        let (counter_style, counter_text) = if char_count <= 160 {
-            (theme.accent_style().bg(theme.bg), format!("{}/160 (1 SMS)", char_count))
-        } else if char_count <= 320 {
-            (Style::default().fg(tailwind::YELLOW.c400).bg(theme.bg), format!("{}/320 (2 SMS parts)", char_count))
-        } else {
-            let sms_count = (char_count + 159) / 160;
-            (theme.error_style().bg(theme.bg), format!("{}/{} ({} SMS parts)", char_count, sms_count * 160, sms_count))
-        };
-
-        let char_counter = Paragraph::new(counter_text)
-            .style(counter_style)
-            .alignment(Alignment::Right);
-        frame.render_widget(char_counter, layout[1]);
-
-        // Help text
-        let help = Paragraph::new("(Enter) new line | (Ctrl+Space) send | (Esc) cancel")
-            .style(theme.secondary_style())
-            .alignment(Alignment::Center);
-        frame.render_widget(help, layout[2]);
-
-        // Render confirmation dialog if active
-        if self.is_confirming() {
-            self.render_confirmation_dialog(frame, theme);
-        }
+    pub fn get_current_message(&self) -> &str {
+        &self.sms_text_buffer
     }
 
     fn move_cursor_left(&mut self) {
@@ -213,93 +46,6 @@ impl SmsInputView {
 
     fn move_cursor_to_end(&mut self, text_len: usize) {
         self.cursor_position = text_len;
-    }
-
-    fn is_confirming(&self) -> bool {
-        matches!(self.confirmation_state, ConfirmationState::Confirming { .. })
-    }
-
-    fn show_confirmation(&mut self) {
-        self.confirmation_state = ConfirmationState::Confirming { selected_yes: false };
-    }
-
-    fn hide_confirmation(&mut self) {
-        self.confirmation_state = ConfirmationState::None;
-    }
-
-    fn toggle_confirmation_selection(&mut self) {
-        if let ConfirmationState::Confirming { selected_yes } = &mut self.confirmation_state {
-            *selected_yes = !*selected_yes;
-        }
-    }
-
-    fn render_confirmation_dialog(&self, frame: &mut Frame, theme: &Theme) {
-        let dialog_area = centered_rect(50, 15, frame.area()); // Reduced from 30 to 15
-        frame.render_widget(Clear, dialog_area);
-
-        let block = Block::bordered()
-            .title(" Confirm Send ")
-            .title_alignment(Alignment::Center)
-            .border_type(BorderType::Double)
-            .border_style(theme.border_focused_style())
-            .style(theme.primary_style());
-
-        let inner = block.inner(dialog_area);
-        frame.render_widget(block, dialog_area);
-
-        let layout = Layout::vertical([
-            Constraint::Length(2),   // Question
-            Constraint::Min(1),      // Flexible spacer that takes remaining space
-            Constraint::Length(2),   // Buttons
-            Constraint::Length(1),   // Help text at bottom
-        ])
-            .split(inner);
-
-        let question = Paragraph::new("Are you sure you want to send this SMS?")
-            .style(theme.primary_style())
-            .alignment(Alignment::Center)
-            .wrap(Wrap { trim: false });
-        frame.render_widget(question, layout[0]);
-
-        let (yes_style, no_style) = if let ConfirmationState::Confirming { selected_yes } = self.confirmation_state {
-            if selected_yes {
-                (
-                    Style::default()
-                        .fg(theme.bg)
-                        .bg(theme.text_accent)
-                        .add_modifier(Modifier::BOLD),
-                    theme.secondary_style()
-                )
-            } else {
-                (
-                    theme.secondary_style(),
-                    Style::default()
-                        .fg(theme.bg)
-                        .bg(theme.text_error)
-                        .add_modifier(Modifier::BOLD)
-                )
-            }
-        } else {
-            (theme.secondary_style(), theme.secondary_style())
-        };
-
-        let buttons = Line::from(vec![
-            Span::raw("    "),
-            Span::styled("  Yes  ", yes_style),
-            Span::raw("     "),
-            Span::styled("  No  ", no_style),
-            Span::raw("    "),
-        ]);
-
-        let buttons_paragraph = Paragraph::new(buttons)
-            .style(theme.primary_style())
-            .alignment(Alignment::Center);
-        frame.render_widget(buttons_paragraph, layout[2]);
-
-        let help = Paragraph::new("(←/→) select | (Enter) confirm | (Esc) cancel")
-            .style(theme.secondary_style())
-            .alignment(Alignment::Center);
-        frame.render_widget(help, layout[3]);
     }
 
     fn render_text_with_cursor(&self, theme: &Theme) -> Vec<Line<'static>> {
@@ -361,5 +107,135 @@ impl SmsInputView {
         }
 
         lines
+    }
+}
+impl View for SmsInputView {
+    type Context = String;
+
+    async fn load(&mut self, _ctx: Self::Context) -> AppResult<()> {
+        self.cursor_position = 0;
+        self.is_sending = false;
+        self.sms_text_buffer.clear();
+        Ok(())
+    }
+
+    async fn handle_key(&mut self, key: KeyEvent, ctx: Self::Context) -> Option<KeyResponse> {
+        // Ignore all keyboard input while sending the message
+        if self.is_sending {
+            return None;
+        }
+
+        match key.code {
+            KeyCode::Esc => {
+                let state = AppState::view_messages(ctx.to_string());
+                self.sms_text_buffer.clear();
+                return Some(KeyResponse::SetAppState(state));
+            },
+            KeyCode::Char(' ') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                if !self.sms_text_buffer.is_empty() {
+                    let modal =  Modal::from(
+                        ("send_sms", ConfirmationDialog::new(
+                            format!("Send SMS to {}?", ctx)
+                        ))
+                    );
+                    return Some(KeyResponse::ShowModal(modal));
+                }
+            },
+            KeyCode::Enter => {
+                self.sms_text_buffer.push('\n');
+                self.move_cursor_right(self.sms_text_buffer.len());
+            },
+            KeyCode::Backspace => {
+                if self.cursor_position > 0 {
+                    let pos = self.cursor_position;
+                    self.sms_text_buffer.remove(pos - 1);
+                    self.move_cursor_left();
+                }
+            },
+            KeyCode::Delete => {
+                if self.cursor_position < self.sms_text_buffer.len() {
+                    let pos = self.cursor_position;
+                    self.sms_text_buffer.remove(pos);
+                }
+            },
+            KeyCode::Left => {
+                self.move_cursor_left();
+            },
+            KeyCode::Right => {
+                self.move_cursor_right(self.sms_text_buffer.len());
+            },
+            KeyCode::Home => {
+                self.move_cursor_to_start();
+            },
+            KeyCode::End => {
+                self.move_cursor_to_end(self.sms_text_buffer.len());
+            },
+            KeyCode::Char(c) => {
+                let pos = self.cursor_position;
+                self.sms_text_buffer.insert(pos, c);
+                self.move_cursor_right(self.sms_text_buffer.len());
+            },
+            _ => {}
+        }
+
+        None
+    }
+
+    fn render(&mut self, frame: &mut Frame, theme: &Theme, ctx: Self::Context) {
+        let area = centered_rect(70, 60, frame.area());
+        frame.render_widget(Clear, area);
+
+        let block = Block::bordered()
+            .title(format!(" Compose SMS to {} ", ctx))
+            .title_alignment(Alignment::Center)
+            .border_type(BorderType::Rounded)
+            .border_style(theme.border_focused_style());
+
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
+
+        let layout = Layout::vertical([
+            Constraint::Min(10),     // Text area
+            Constraint::Length(2),   // Character count
+            Constraint::Length(2),   // Help text
+        ])
+            .split(inner);
+
+        // Text area with cursor
+        let text_with_cursor = self.render_text_with_cursor(theme);
+
+        let text_area = Paragraph::new(text_with_cursor)
+            .style(theme.input_style())
+            .block(
+                Block::bordered()
+                    .border_style(theme.border_focused_style())
+                    .border_type(BorderType::Rounded)
+            )
+            .wrap(Wrap { trim: false })
+            .scroll((0, 0));
+
+        frame.render_widget(text_area, layout[0]);
+
+        // Character counter
+        let char_count = self.sms_text_buffer.chars().count();
+        let (counter_style, counter_text) = if char_count <= 160 {
+            (theme.accent_style().bg(theme.bg), format!("{}/160 (1 SMS)", char_count))
+        } else if char_count <= 320 {
+            (Style::default().fg(tailwind::YELLOW.c400).bg(theme.bg), format!("{}/320 (2 SMS parts)", char_count))
+        } else {
+            let sms_count = (char_count + 159) / 160;
+            (theme.error_style().bg(theme.bg), format!("{}/{} ({} SMS parts)", char_count, sms_count * 160, sms_count))
+        };
+
+        let char_counter = Paragraph::new(counter_text)
+            .style(counter_style)
+            .alignment(Alignment::Right);
+        frame.render_widget(char_counter, layout[1]);
+
+        // Help text
+        let help = Paragraph::new("(Enter) new line | (Ctrl+Space) send | (Esc) cancel")
+            .style(theme.secondary_style())
+            .alignment(Alignment::Center);
+        frame.render_widget(help, layout[2]);
     }
 }

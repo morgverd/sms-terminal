@@ -1,3 +1,4 @@
+use std::fmt::format;
 use std::sync::Arc;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::{Alignment, Constraint, Layout};
@@ -11,27 +12,29 @@ use sms_client::http::types::{HttpPaginationOptions, LatestNumberFriendlyNamePai
 
 use crate::error::AppResult;
 use crate::theme::Theme;
-use crate::types::{AppState, KeyResponse};
-use super::centered_rect;
+use crate::types::{AppState, KeyResponse, Modal};
+use crate::ui::{centered_rect, View};
+use crate::ui::dialog::TextInputDialog;
 
 pub struct PhoneInputView {
     http_client: Arc<HttpClient>,
     recent_contacts: Vec<LatestNumberFriendlyNamePair>, // (phone, friendly name)
     selected_contact: Option<usize>,
     input_buffer: String,
-    max_contacts: usize
+    max_contacts: usize,
+    pending_friendly_name_edit: Option<String>, // Phone number being edited
 }
+
 impl PhoneInputView {
     pub fn with_http(http_client: Arc<HttpClient>) -> Self {
-
-        // TODO: Fetch the latest contacts from client!
         let recent_contacts = vec![];
         Self {
             http_client,
             recent_contacts,
             selected_contact: None,
             input_buffer: String::new(),
-            max_contacts: 14
+            max_contacts: 14,
+            pending_friendly_name_edit: None,
         }
     }
 
@@ -56,21 +59,34 @@ impl PhoneInputView {
         Ok(())
     }
 
-    pub async fn load(&mut self) -> AppResult<()> {
-        let pagination = HttpPaginationOptions::default().with_limit(self.max_contacts as u64);
-        self.recent_contacts = self.http_client.get_latest_numbers(Some(pagination))
-            .await
-            .map_err(|e| ClientError::from(e))?
-            .into_iter()
-            .collect();
+    pub async fn handle_modal_response(&mut self, modal_id: String, value: String) -> Option<KeyResponse> {
+        if modal_id == "edit_friendly_name" {
+            if let Some(phone_number) = &self.pending_friendly_name_edit {
+                // Save the friendly name
+                let name_to_save = if value.trim().is_empty() {
+                    None
+                } else {
+                    Some(value.trim().to_string())
+                };
 
-        // Reset selection if OOB
-        if let Some(selected) = self.selected_contact {
-            if selected >= self.recent_contacts.len() {
-                self.selected_contact = None;
+                // Save to backend asynchronously
+                let http_client = self.http_client.clone();
+                let phone = phone_number.clone();
+                let name = name_to_save.clone();
+                tokio::spawn(async move {
+                    let _ = http_client.set_friendly_name(&phone, name.as_deref()).await;
+                });
+
+                // Update local cache immediately for better UX
+                if let Some(contact) = self.recent_contacts.iter_mut()
+                    .find(|(p, _)| p == phone_number) {
+                    contact.1 = name_to_save;
+                }
+
+                self.pending_friendly_name_edit = None;
             }
         }
-        Ok(())
+        None
     }
 
     fn select_next(&mut self) {
@@ -101,12 +117,53 @@ impl PhoneInputView {
     fn clear_selection(&mut self) {
         self.selected_contact = None;
     }
+}
+impl View for PhoneInputView {
+    type Context = ();
 
-    pub fn handle_key(&mut self, key: KeyEvent) -> Option<KeyResponse> {
+    async fn load(&mut self, _ctx: Self::Context) -> AppResult<()> {
+        if !self.recent_contacts.is_empty() {
+            return Ok(());
+        }
+
+        // Request first page of latest contacts.
+        let pagination = HttpPaginationOptions::default().with_limit(self.max_contacts as u64);
+        self.recent_contacts = self.http_client.get_latest_numbers(Some(pagination))
+            .await
+            .map_err(|e| ClientError::from(e))?
+            .into_iter()
+            .collect();
+
+        // Reset selection if OOB
+        if let Some(selected) = self.selected_contact {
+            if selected >= self.recent_contacts.len() {
+                self.selected_contact = None;
+            }
+        }
+        Ok(())
+    }
+
+    async fn handle_key(&mut self, key: KeyEvent, _ctx: Self::Context) -> Option<KeyResponse> {
         match key.code {
-            // Make sure control is held so it's not just a letter input into text box.
             KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 return Some(KeyResponse::Quit);
+            },
+            KeyCode::Char('e') | KeyCode::Char('E') => {
+                if let Some(selected) = self.selected_contact {
+                    if let Some((phone, existing_friendly_name)) = self.recent_contacts.get(selected) {
+                        self.pending_friendly_name_edit = Some(phone.clone());
+
+                        // Create text input dialog with current friendly name
+                        let mut dialog = TextInputDialog::new("Edit Friendly Name", format!("Name for {}", phone)).with_max_length(50);
+                        if let Some(existing) = existing_friendly_name {
+                            dialog = dialog.with_initial_value(existing);
+                        }
+
+                        return Some(KeyResponse::ShowModal(
+                            Modal::from(("edit_friendly_name", dialog))
+                        ));
+                    }
+                }
             },
             KeyCode::Enter => {
                 let current_phone = self.selected_contact
@@ -138,7 +195,7 @@ impl PhoneInputView {
                 self.input_buffer.pop();
                 self.clear_selection();
             },
-            KeyCode::Char(c) => {
+            KeyCode::Char(c) if !c.is_control() => {
                 self.input_buffer.push(c);
                 self.clear_selection();
             },
@@ -148,7 +205,7 @@ impl PhoneInputView {
         None
     }
 
-    pub fn render(&self, frame: &mut Frame, theme: &Theme) {
+    fn render(&mut self, frame: &mut Frame, theme: &Theme, _ctx: Self::Context) {
         let area = centered_rect(50, 35, frame.area());
         frame.render_widget(Clear, area);
 
@@ -210,6 +267,8 @@ impl PhoneInputView {
         // Controls help
         let help_text = if self.recent_contacts.is_empty() {
             "(Enter) confirm, (Ctrl+C) quit"
+        } else if self.selected_contact.is_some() {
+            "(Enter) confirm, (E) edit name, (Ctrl+C) quit, ↑↓ select"
         } else {
             "(Enter) confirm, (Ctrl+C) quit, ↑↓ select contact"
         };

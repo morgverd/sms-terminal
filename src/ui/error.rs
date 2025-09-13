@@ -3,20 +3,27 @@ use ratatui::layout::{Alignment, Constraint, Layout};
 use ratatui::style::Style;
 use ratatui::widgets::{Block, BorderType, Clear, Paragraph, Wrap};
 use ratatui::Frame;
-
+use crate::error::AppResult;
 use crate::theme::Theme;
 use crate::types::{AppState, KeyResponse};
-use super::centered_rect;
+use super::{centered_rect, View};
 
 pub struct ErrorView;
 impl ErrorView {
     pub fn new() -> Self {
         Self
     }
+}
+impl View for ErrorView {
+    type Context = (String, bool);
 
-    pub fn handle_key(&mut self, key: KeyEvent, dismissible: bool) -> Option<KeyResponse> {
+    async fn load(&mut self, _ctx: Self::Context) -> AppResult<()> {
+        Ok(())
+    }
+
+    async fn handle_key(&mut self, key: KeyEvent, ctx: Self::Context) -> Option<KeyResponse> {
         match key.code {
-            KeyCode::Esc if dismissible => {
+            KeyCode::Esc if ctx.1 => {
                 Some(KeyResponse::SetAppState(AppState::InputPhone))
             },
             KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
@@ -26,7 +33,7 @@ impl ErrorView {
         }
     }
 
-    pub fn render(&self, frame: &mut Frame, error_message: &str, dismissible: bool, theme: &Theme) {
+    fn render(&mut self, frame: &mut Frame, theme: &Theme, ctx: Self::Context) {
         let area = centered_rect(60, 25, frame.area());
         frame.render_widget(Clear, area);
 
@@ -47,14 +54,14 @@ impl ErrorView {
         ]).split(inner);
 
         // Error message with proper styling
-        let error_text = Paragraph::new(error_message)
+        let error_text = Paragraph::new(ctx.0)
             .style(theme.error_style())
             .wrap(Wrap { trim: true })
             .alignment(Alignment::Center);
         frame.render_widget(error_text, layout[1]);
 
         // Control hints
-        let help_text = if dismissible { "(Esc) dismiss, (Ctrl+C) quit" } else { "(Ctrl+C) quit" };
+        let help_text = if ctx.1 { "(Esc) dismiss, (Ctrl+C) quit" } else { "(Ctrl+C) quit" };
         let help = Paragraph::new(help_text)
             .style(Style::default().fg(theme.text_muted))
             .alignment(Alignment::Center);

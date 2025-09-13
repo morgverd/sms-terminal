@@ -11,12 +11,14 @@ use tokio::sync::mpsc;
 use crate::TerminalConfig;
 use crate::error::{AppError, AppResult};
 use crate::theme::ThemeManager;
-use crate::types::{AppState, KeyDebouncer, KeyPress, KeyResponse, SmsMessage, DEBOUNCE_DURATION};
+use crate::types::{AppState, KeyDebouncer, KeyPress, KeyResponse, SmsMessage, DEBOUNCE_DURATION, ModalResponse, Modal};
+use crate::ui::dialog::Dialog;
 use crate::ui::error::ErrorView;
 use crate::ui::messages_table::MessagesTableView;
 use crate::ui::notification::{NotificationType, NotificationView};
 use crate::ui::phone_input::PhoneInputView;
 use crate::ui::sms_input::SmsInputView;
+use crate::ui::View;
 
 #[derive(Debug, Clone)]
 pub enum LiveEvent {
@@ -31,6 +33,7 @@ pub enum LiveEvent {
 
 pub struct App {
     app_state: AppState,
+    current_modal: Option<Modal>,
     key_debouncer: KeyDebouncer,
     theme_manager: ThemeManager,
     phone_input_view: PhoneInputView,
@@ -51,6 +54,7 @@ impl App {
         let (tx, rx) = mpsc::unbounded_channel();
         Ok(Self {
             app_state: AppState::InputPhone,
+            current_modal: None,
             key_debouncer: KeyDebouncer::new(DEBOUNCE_DURATION),
             theme_manager: ThemeManager::with_preset(config.theme),
             phone_input_view: PhoneInputView::with_http(client.http_arc()),
@@ -69,7 +73,6 @@ impl App {
         if self.websocket_enabled {
             self.start_sms_websocket().await?;
         } else {
-
             // Show a notification informing the user that their websocket
             // is disabled and therefore live updates will not work
             let notification = NotificationType::GenericMessage {
@@ -109,12 +112,9 @@ impl App {
 
     async fn transition_state(&mut self, new_state: AppState) -> bool {
         let result = match &new_state {
-            AppState::InputPhone => self.phone_input_view.load().await,
-            AppState::ViewMessages { phone_number, reversed } => self.messages_view.load(phone_number, *reversed).await,
-            AppState::ComposeSms { .. } => {
-                self.sms_input_view.load();
-                Ok(())
-            },
+            AppState::InputPhone => self.phone_input_view.load(()).await,
+            AppState::ViewMessages { phone_number, reversed } => self.messages_view.load((phone_number.into(), *reversed)).await,
+            AppState::ComposeSms { phone_number } => self.sms_input_view.load(phone_number.into()).await,
             _ => Ok(())
         };
 
@@ -142,36 +142,8 @@ impl App {
             KeyResponse::SetAppState(state) => {
                 let _ = self.transition_state(state).await;
             },
-            KeyResponse::SendMessage(message, state) => {
-
-                // Send the SMS message as provided
-                let notification = match self.sms_client.http_arc().send_sms(&message).await {
-                    Ok(response) => {
-
-                        // Convert message and response into a stored message
-                        // format so it can be pushed to other views.
-                        let _ = self.handle_new_message(
-                            SmsStoredMessage::from((message, response))
-                        ).await;
-
-                        NotificationType::GenericMessage {
-                            color: Color::Green,
-                            title: "Message Sent".to_string(),
-                            message: format!("Message #{} was sent (ref {})!", response.message_id, response.reference_id),
-                        }
-                    },
-                    Err(e) => {
-                        NotificationType::GenericMessage {
-                            color: Color::Red,
-                            title: "Send Failure".to_string(),
-                            message: e.to_string()
-                        }
-                    }
-                };
-
-                // Show resulting notification and change to result state
-                self.notification_view.add_notification(notification);
-                let _ = self.transition_state(state).await;
+            KeyResponse::ShowModal(modal) => {
+                self.current_modal = Some(modal);
             },
             KeyResponse::Quit => return true
         };
@@ -185,9 +157,7 @@ impl App {
             return None;
         }
 
-        // Global theme switching with F10. This was such a pain to make
-        // but a coworker said it looked cool, so I stuck with it throughout.
-        // This MUST remain uppercase T, since shift modifies it before here!
+        // Global theme switching with F10
         if key.code == KeyCode::F(10) {
             self.theme_manager.next();
             return None;
@@ -197,32 +167,109 @@ impl App {
             return None;
         }
 
-        // Handle notification interactions first (priority)
-        if let Some(response) = self.notification_view.handle_key(key) {
+        // Handle modal interactions
+        if let Some(modal) = &mut self.current_modal {
+            let modal_response = match modal {
+                Modal::Confirmation { dialog, id: modal_id } => {
+                    if let Some(confirmed) = dialog.handle_key(key) {
+                        Some(ModalResponse::Confirmation {
+                            modal_id: modal_id.clone(),
+                            confirmed,
+                        })
+                    } else {
+                        None
+                    }
+                },
+                Modal::TextInput { dialog, id: modal_id } => {
+                    if let Some(confirmed) = dialog.handle_key(key) {
+                        Some(ModalResponse::TextInput {
+                            modal_id: modal_id.clone(),
+                            value:  if confirmed {
+                                dialog.get_input().map(|s| s.to_string())
+                            } else {
+                                None
+                            }
+                        })
+                    } else {
+                        None
+                    }
+                }
+            };
+
+            if let Some(response) = modal_response {
+                let key_response = self.handle_modal_response(response).await;
+                self.current_modal = None;
+                return key_response;
+            }
+            return None;
+        }
+
+        // Handle notification interactions
+        if let Some(response) = self.notification_view.handle_key(key, ()).await {
             return Some(response);
         }
 
-        // State specific key handlers
+        // View handlers
         match &self.app_state {
-            AppState::InputPhone => self.phone_input_view.handle_key(key),
-            AppState::ViewMessages { phone_number, .. } => self.messages_view.handle_key(key, phone_number).await,
-            AppState::ComposeSms { phone_number } => self.sms_input_view.handle_key(key, phone_number),
-            AppState::Error { dismissible, .. } => self.error_view.handle_key(key, *dismissible)
+            AppState::InputPhone => self.phone_input_view.handle_key(key, ()).await,
+            AppState::ViewMessages { phone_number, reversed } => self.messages_view.handle_key(key, (phone_number.clone(), *reversed)).await,
+            AppState::ComposeSms { phone_number } => self.sms_input_view.handle_key(key, phone_number.into()).await,
+            AppState::Error { message, dismissible } => self.error_view.handle_key(key, (message.into(), *dismissible)).await
         }
     }
 
     fn render(&mut self, frame: &mut Frame) {
         let theme = self.theme_manager.current();
 
+        // Render main application view
         match &self.app_state {
-            AppState::InputPhone => self.phone_input_view.render(frame, theme),
-            AppState::ViewMessages { phone_number, .. } => self.messages_view.render(frame, phone_number, theme),
-            AppState::ComposeSms { phone_number } => self.sms_input_view.render(frame, phone_number, theme),
-            AppState::Error { message, dismissible } => self.error_view.render(frame, message, *dismissible, theme)
+            AppState::InputPhone => self.phone_input_view.render(frame, theme, ()),
+            AppState::ViewMessages { phone_number, reversed } => self.messages_view.render(frame, theme, (phone_number.into(), *reversed)),
+            AppState::ComposeSms { phone_number } => self.sms_input_view.render(frame, theme, phone_number.into()),
+            AppState::Error { message, dismissible } => self.error_view.render(frame, theme, (message.into(), *dismissible))
+        }
+
+        // Render modal on top of main view
+        if let Some(modal) = &self.current_modal {
+            match modal {
+                Modal::Confirmation { dialog, .. } => dialog.render(frame, theme),
+                Modal::TextInput { dialog, .. } => dialog.render(frame, theme),
+            }
         }
 
         // Render notifications on top of everything
-        self.notification_view.render(frame, theme);
+        self.notification_view.render(frame, theme, ());
+    }
+
+    async fn handle_modal_response(&mut self, response: ModalResponse) -> Option<KeyResponse> {
+        match response {
+            ModalResponse::Confirmation { modal_id, confirmed } => {
+                if !confirmed {
+                    return None; // User cancelled
+                }
+
+                // Handle confirmed actions based on modal_id and current state
+                match (modal_id.as_str(), &self.app_state) {
+                    ("send_sms", AppState::ComposeSms { phone_number }) => {
+                        let message_content = self.sms_input_view.get_current_message();
+                        // self.handle_send_sms(phone_number, message_content).await
+                        None
+                    },
+                    _ => None
+                }
+            },
+            ModalResponse::TextInput { modal_id, value } => {
+                let Some(value) = value else {
+                    return None; // User cancelled
+                };
+
+                // Handle text input based on modal_id and current state
+                match (modal_id.as_str(), &self.app_state) {
+                    ("edit_friendly_name", AppState::InputPhone) => self.phone_input_view.handle_modal_response(modal_id, value).await,
+                    _ => None
+                }
+            }
+        }
     }
 
     async fn start_sms_websocket(&self) -> AppResult<()> {
@@ -248,7 +295,6 @@ impl App {
         let client = self.sms_client.clone();
         let task_sender = self.message_sender.clone();
         tokio::spawn(async move {
-
             // Handle early termination or errors on starting.
             let (message, dismissible) = match client.start_blocking_websocket().await {
                 Ok(_) => ("The WebSocket has been terminated!".to_string(), true),

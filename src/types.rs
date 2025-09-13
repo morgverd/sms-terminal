@@ -4,7 +4,6 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use sms_client::types::SmsStoredMessage;
 use std::time::{Duration, Instant};
 use ansi_escape_sequences::strip_ansi;
-use sms_client::http::types::HttpOutgoingSmsMessage;
 use unicode_general_category::{get_general_category, GeneralCategory};
 use crate::error::AppError;
 
@@ -95,11 +94,45 @@ impl Display for AppState {
         }
     }
 }
+#[derive(Debug, Clone, PartialEq)]
+pub enum Modal {
+    Confirmation {
+        dialog: crate::ui::dialog::ConfirmationDialog,
+        id: String,
+    },
+    TextInput {
+        dialog: crate::ui::dialog::TextInputDialog,
+        id: String,
+    }
+}
+impl<T: Into<String>> From<(T, crate::ui::dialog::ConfirmationDialog)> for Modal {
+    fn from((id, dialog): (T, crate::ui::dialog::ConfirmationDialog)) -> Self {
+        Self::Confirmation { id: id.into(), dialog }
+    }
+}
+impl<T: Into<String>> From<(T, crate::ui::dialog::TextInputDialog)> for Modal {
+    fn from((id, dialog): (T, crate::ui::dialog::TextInputDialog)) -> Self {
+        Self::TextInput { id: id.into(), dialog }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ModalResponse {
+    Confirmation {
+        modal_id: String,
+        confirmed: bool,
+    },
+    TextInput {
+        modal_id: String,
+        value: Option<String>
+    }
+}
 
 /// Returned by a View key_handler to do some app action.
+#[derive(Debug, Clone, PartialEq)]
 pub enum KeyResponse {
     SetAppState(AppState),
-    SendMessage(HttpOutgoingSmsMessage, AppState), // message, next_state
+    ShowModal(Modal),
     Quit
 }
 
@@ -132,7 +165,7 @@ impl KeyDebouncer {
             debounce_duration,
         }
     }
-    
+
     pub fn should_process(&mut self, key: &KeyPress) -> bool {
         let now = Instant::now();
 

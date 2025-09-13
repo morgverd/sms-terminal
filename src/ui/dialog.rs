@@ -8,9 +8,15 @@ use ratatui::Frame;
 use crate::theme::Theme;
 use crate::ui::centered_rect;
 
-pub trait Modal {
+pub trait Dialog {
+
+    fn handle_key(&mut self, key: KeyEvent) -> Option<bool>;
+    fn render(&self, frame: &mut Frame, theme: &Theme);
+    fn get_input(&self) -> Option<&str> {
+        None
+    }
+
     fn render_base(
-        &self,
         frame: &mut Frame,
         title: &str,
         content: impl FnOnce(&mut Frame, Rect, &Theme),
@@ -34,7 +40,7 @@ pub trait Modal {
         content(frame, inner, theme);
     }
 
-    fn render_buttons(&self, frame: &mut Frame, area: Rect, buttons: &[ModalButton], selected_index: usize) {
+    fn render_buttons(&self, frame: &mut Frame, area: Rect, buttons: &[DialogButton], selected_index: usize) {
         let mut button_spans = Vec::new();
 
         button_spans.push(Span::raw("    "));
@@ -56,43 +62,15 @@ pub trait Modal {
             .alignment(Alignment::Center);
         frame.render_widget(buttons_paragraph, area);
     }
-
-    /// Create styled buttons for OK/Cancel pattern
-    fn create_ok_cancel_buttons(&self, button_styles: &ButtonStyles) -> [ModalButton; 2] {
-        [
-            ModalButton::new("OK").with_styles(
-                button_styles.primary_normal,
-                button_styles.primary_focused
-            ),
-            ModalButton::new("Cancel").with_styles(
-                button_styles.secondary_normal,
-                button_styles.secondary_focused
-            ),
-        ]
-    }
-
-    /// Create styled buttons for Yes/No pattern
-    fn create_yes_no_buttons(&self, button_styles: &ButtonStyles) -> [ModalButton; 2] {
-        [
-            ModalButton::new("Yes").with_styles(
-                button_styles.primary_normal,
-                button_styles.primary_focused
-            ),
-            ModalButton::new("No").with_styles(
-                button_styles.secondary_normal,
-                button_styles.secondary_focused
-            ),
-        ]
-    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct ModalButton {
+pub struct DialogButton {
     pub label: String,
     pub style_normal: Style,
     pub style_focused: Style,
 }
-impl ModalButton {
+impl DialogButton {
     pub fn new(label: impl Into<String>) -> Self {
         Self {
             label: label.into(),
@@ -113,6 +91,35 @@ impl ModalButton {
         } else {
             self.style_normal
         }
+    }
+
+
+    /// Create styled buttons for OK/Cancel pattern
+    fn create_ok_cancel_buttons(button_styles: &ButtonStyles) -> [DialogButton; 2] {
+        [
+            DialogButton::new("OK").with_styles(
+                button_styles.primary_normal,
+                button_styles.primary_focused
+            ),
+            DialogButton::new("Cancel").with_styles(
+                button_styles.secondary_normal,
+                button_styles.secondary_focused
+            ),
+        ]
+    }
+
+    /// Create styled buttons for Yes/No pattern
+    fn create_yes_no_buttons(button_styles: &ButtonStyles) -> [DialogButton; 2] {
+        [
+            DialogButton::new("Yes").with_styles(
+                button_styles.primary_normal,
+                button_styles.primary_focused
+            ),
+            DialogButton::new("No").with_styles(
+                button_styles.secondary_normal,
+                button_styles.secondary_focused
+            ),
+        ]
     }
 }
 
@@ -142,19 +149,21 @@ impl ButtonStyles {
 
 /// Confirmation with Yes/No buttons
 #[derive(Debug, Clone, PartialEq)]
-pub struct ConfirmationModal {
+pub struct ConfirmationDialog {
     pub message: String,
     pub selected_yes: bool,
 }
-impl ConfirmationModal {
+impl ConfirmationDialog {
     pub fn new(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
             selected_yes: false,
         }
     }
+}
+impl Dialog for ConfirmationDialog {
 
-    pub fn handle_key(&mut self, key: KeyEvent) -> Option<bool> {
+    fn handle_key(&mut self, key: KeyEvent) -> Option<bool> {
         match key.code {
             KeyCode::Left | KeyCode::Right | KeyCode::Tab => {
                 self.selected_yes = !self.selected_yes;
@@ -173,12 +182,11 @@ impl ConfirmationModal {
             _ => None,
         }
     }
-
-    pub fn render(&self, frame: &mut Frame, theme: &Theme) {
+    fn render(&self, frame: &mut Frame, theme: &Theme) {
         let button_styles = ButtonStyles::from_theme(theme);
-        let styled_buttons = self.create_yes_no_buttons(&button_styles);
+        let styled_buttons = DialogButton::create_yes_no_buttons(&button_styles);
 
-        self.render_base(
+        Self::render_base(
             frame,
             "Confirm",
             |frame, area, theme| {
@@ -212,12 +220,15 @@ impl ConfirmationModal {
             15,
         );
     }
+
+    fn get_input(&self) -> Option<&str> {
+        None
+    }
 }
-impl Modal for ConfirmationModal {}
 
 /// Text input with OK/Cancel buttons
 #[derive(Debug, Clone, PartialEq)]
-pub struct TextInputModal {
+pub struct TextInputDialog {
     pub title: String,
     pub prompt: String,
     pub input_buffer: String,
@@ -226,7 +237,7 @@ pub struct TextInputModal {
     pub placeholder: String,
     pub max_length: Option<usize>,
 }
-impl TextInputModal {
+impl TextInputDialog {
 
     const BASE_HEIGHT: u16 = 12;
     const MINIMUM_HEIGHT: u16 = 6;
@@ -259,7 +270,39 @@ impl TextInputModal {
         self
     }
 
-    pub fn handle_key(&mut self, key: KeyEvent) -> Option<bool> {
+    fn render_text_with_cursor(&self, theme: &Theme) -> Vec<Line<'static>> {
+        let mut spans = Vec::new();
+
+        if self.cursor_position > 0 {
+            spans.push(Span::raw(self.input_buffer[..self.cursor_position].to_string()));
+        }
+        if self.cursor_position < self.input_buffer.len() {
+            spans.push(Span::styled(
+                self.input_buffer.chars().nth(self.cursor_position).unwrap().to_string(),
+                Style::default()
+                    .fg(theme.bg)
+                    .bg(theme.input_cursor)
+                    .add_modifier(Modifier::SLOW_BLINK)
+            ));
+
+            if self.cursor_position + 1 < self.input_buffer.len() {
+                spans.push(Span::raw(self.input_buffer[self.cursor_position + 1..].to_string()));
+            }
+        } else {
+            spans.push(Span::styled(
+                "█",
+                Style::default()
+                    .fg(theme.input_cursor)
+                    .add_modifier(Modifier::SLOW_BLINK)
+            ));
+        }
+
+        vec![Line::from(spans)]
+    }
+}
+impl Dialog for TextInputDialog {
+
+    fn handle_key(&mut self, key: KeyEvent) -> Option<bool> {
         match key.code {
             KeyCode::Esc => Some(false),
             KeyCode::Tab => {
@@ -331,14 +374,14 @@ impl TextInputModal {
         }
     }
 
-    pub fn render(&self, frame: &mut Frame, theme: &Theme) {
+    fn render(&self, frame: &mut Frame, theme: &Theme) {
         let available_height = frame.area().height.saturating_sub(4); // Leave some margin
-        let modal_height = Self::BASE_HEIGHT.max(available_height.min(25)); // Cap at reasonable max
+        let dialog_height = Self::BASE_HEIGHT.max(available_height.min(25)); // Cap at reasonable max
 
         let button_styles = ButtonStyles::from_theme(theme);
-        let styled_buttons = self.create_ok_cancel_buttons(&button_styles);
+        let styled_buttons = DialogButton::create_ok_cancel_buttons(&button_styles);
 
-        self.render_base(
+        Self::render_base(
             frame,
             &self.title,
             |frame, area, theme| {
@@ -437,42 +480,11 @@ impl TextInputModal {
             },
             theme,
             55,
-            modal_height
+            dialog_height
         );
     }
 
-    fn render_text_with_cursor(&self, theme: &Theme) -> Vec<Line<'static>> {
-        let mut spans = Vec::new();
-
-        if self.cursor_position > 0 {
-            spans.push(Span::raw(self.input_buffer[..self.cursor_position].to_string()));
-        }
-        if self.cursor_position < self.input_buffer.len() {
-            spans.push(Span::styled(
-                self.input_buffer.chars().nth(self.cursor_position).unwrap().to_string(),
-                Style::default()
-                    .fg(theme.bg)
-                    .bg(theme.input_cursor)
-                    .add_modifier(Modifier::SLOW_BLINK)
-            ));
-
-            if self.cursor_position + 1 < self.input_buffer.len() {
-                spans.push(Span::raw(self.input_buffer[self.cursor_position + 1..].to_string()));
-            }
-        } else {
-            spans.push(Span::styled(
-                "█",
-                Style::default()
-                    .fg(theme.input_cursor)
-                    .add_modifier(Modifier::SLOW_BLINK)
-            ));
-        }
-
-        vec![Line::from(spans)]
-    }
-
-    pub fn get_input(&self) -> &str {
-        &self.input_buffer
+    fn get_input(&self) -> Option<&str> {
+        Some(&self.input_buffer)
     }
 }
-impl Modal for TextInputModal {}
