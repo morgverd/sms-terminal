@@ -1,3 +1,4 @@
+use std::fmt::Display;
 use chrono::{Local, TimeZone};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use sms_client::types::SmsStoredMessage;
@@ -80,6 +81,16 @@ impl From<AppError> for AppState {
         AppState::Error {
             message: error.to_string(),
             dismissible: false
+        }
+    }
+}
+impl Display for AppState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AppState::InputPhone => write!(f, "Phonebook"),
+            AppState::ViewMessages { phone_number, .. } => write!(f, "Viewing Messages ｜ {}", phone_number),
+            AppState::ComposeSms { phone_number, .. } => write!(f, "Composing Message ｜ {}", phone_number),
+            AppState::Error { dismissible, .. } => write!(f, "{}", if *dismissible { "Fatal Error" } else { "Error" })
         }
     }
 }

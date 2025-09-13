@@ -78,6 +78,9 @@ impl App {
             self.notification_view.add_notification(notification);
         }
 
+        // Set initial state (ensure title is set).
+        self.transition_state(AppState::InputPhone).await?;
+
         loop {
             terminal.draw(|frame| self.render(frame))?;
             self.process_live_events()?;
@@ -110,6 +113,11 @@ impl App {
             AppState::ComposeSms { .. } => self.sms_input_view.load(),
             _ => { }
         };
+
+        let _ = crossterm::execute!(
+            std::io::stdout(),
+            crossterm::terminal::SetTitle(format!("SMS Terminal v{} ｜ {}", crate::VERSION, new_state)),
+        );
 
         self.app_state = new_state;
         self.key_debouncer.reset();

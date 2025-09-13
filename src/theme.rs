@@ -5,9 +5,9 @@ use serde::{Deserialize, Serialize};
 #[derive(clap::ValueEnum, Serialize, Deserialize, Debug, Clone, Copy)]
 #[serde(rename_all = "lowercase")]
 pub enum PresetTheme {
+    Emerald,
     Blue,
     Zinc,
-    Emerald,
     Indigo,
     Red,
     Pink
@@ -39,7 +39,7 @@ impl PresetTheme {
 
 impl Default for PresetTheme {
     fn default() -> Self {
-        PresetTheme::Blue
+        PresetTheme::Emerald
     }
 }
 
@@ -195,7 +195,7 @@ impl ThemeManager {
         let num_themes = PresetTheme::variants().len();
 
         Self {
-            modify_background: false,
+            modify_background: true,
             static_themes: vec![None; num_themes],
             dynamic_themes: vec![None; num_themes],
             current_index: PresetTheme::variants()

@@ -168,15 +168,15 @@ impl TerminalConfig {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    crossterm::execute!(
-        std::io::stdout(),
-        crossterm::terminal::SetTitle(format!("SMS Terminal - v{}", VERSION)),
-        crossterm::terminal::SetSize(160, 50)
-    )?;
 
     color_eyre::install()?;
     let config = TerminalConfig::parse();
     let app = App::new(config)?;
+
+    let _ = crossterm::execute!(
+        std::io::stdout(),
+        crossterm::terminal::SetSize(160, 50)
+    );
 
     let terminal = ratatui::init();
     let app_result = app.run(terminal).await;
