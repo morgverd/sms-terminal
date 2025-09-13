@@ -1711,6 +1711,7 @@ checksum = "b7c388c1b5e93756d0c740965c41e8822f866621d41acbdf6336a6a168f8840c"
 [[package]]
 name = "sms-client"
 version = "1.0.1"
+source = "git+https://github.com/morgverd/sms-client.git#394c594e0abc3a9f16d42c932912de34da44a6c1"
 dependencies = [
  "futures-util",
  "http",
@@ -1727,7 +1728,7 @@ dependencies = [
 
 [[package]]
 name = "sms-terminal"
-version = "0.6.3"
+version = "0.6.4"
 dependencies = [
  "ansi-escape-sequences",
  "chrono",

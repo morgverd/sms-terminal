@@ -75,6 +75,15 @@ impl AppState {
     pub fn compose_sms(phone_number: &str) -> Self {
         Self::ComposeSms { phone_number: phone_number.to_string() }
     }
+
+    pub fn get_phone_number(&self) -> Option<String> {
+        match self {
+            AppState::InputPhone => None,
+            AppState::ViewMessages { phone_number, .. } => Some(phone_number.clone()),
+            AppState::ComposeSms { phone_number } => Some(phone_number.clone()),
+            AppState::Error { .. } => None
+        }
+    }
 }
 impl From<AppError> for AppState {
     fn from(error: AppError) -> Self {

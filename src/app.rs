@@ -4,6 +4,7 @@ use ratatui::{DefaultTerminal, Frame};
 use std::time::Duration;
 use ratatui::style::Color;
 use sms_client::Client;
+use sms_client::http::types::HttpOutgoingSmsMessage;
 use sms_client::types::SmsStoredMessage;
 use sms_client::ws::types::WebsocketMessage;
 use tokio::sync::mpsc;
@@ -90,7 +91,7 @@ impl App {
 
         loop {
             terminal.draw(|frame| self.render(frame))?;
-            self.handle_live_events().await?;
+            self.process_live_events().await?;
 
             if event::poll(Duration::from_millis(100))? {
                 if let Event::Key(key) = event::read()? {
@@ -108,6 +109,29 @@ impl App {
                 }
             }
         }
+    }
+
+    fn render(&mut self, frame: &mut Frame) {
+        let theme = self.theme_manager.current();
+
+        // Render main application view
+        match &self.app_state {
+            AppState::InputPhone => self.phone_input_view.render(frame, theme, ()),
+            AppState::ViewMessages { phone_number, reversed } => self.messages_view.render(frame, theme, (phone_number, *reversed)),
+            AppState::ComposeSms { phone_number } => self.sms_input_view.render(frame, theme, phone_number),
+            AppState::Error { message, dismissible } => self.error_view.render(frame, theme, (message, *dismissible))
+        }
+
+        // Render modal on top of main view
+        if let Some(modal) = &self.current_modal {
+            match modal {
+                Modal::Confirmation { dialog, .. } => dialog.render(frame, theme),
+                Modal::TextInput { dialog, .. } => dialog.render(frame, theme),
+            }
+        }
+
+        // Render notifications on top of everything
+        self.notification_view.render(frame, theme, ());
     }
 
     async fn transition_state(&mut self, new_state: AppState) -> bool {
@@ -218,29 +242,6 @@ impl App {
         }
     }
 
-    fn render(&mut self, frame: &mut Frame) {
-        let theme = self.theme_manager.current();
-
-        // Render main application view
-        match &self.app_state {
-            AppState::InputPhone => self.phone_input_view.render(frame, theme, ()),
-            AppState::ViewMessages { phone_number, reversed } => self.messages_view.render(frame, theme, (phone_number, *reversed)),
-            AppState::ComposeSms { phone_number } => self.sms_input_view.render(frame, theme, phone_number),
-            AppState::Error { message, dismissible } => self.error_view.render(frame, theme, (message, *dismissible))
-        }
-
-        // Render modal on top of main view
-        if let Some(modal) = &self.current_modal {
-            match modal {
-                Modal::Confirmation { dialog, .. } => dialog.render(frame, theme),
-                Modal::TextInput { dialog, .. } => dialog.render(frame, theme),
-            }
-        }
-
-        // Render notifications on top of everything
-        self.notification_view.render(frame, theme, ());
-    }
-
     async fn handle_modal_response(&mut self, response: ModalResponse) -> Option<KeyResponse> {
         match response {
             ModalResponse::Confirmation { modal_id, confirmed } => {
@@ -248,28 +249,97 @@ impl App {
                     return None; // User cancelled
                 }
 
-                // Handle confirmed actions based on modal_id and current state
-                match (modal_id.as_str(), &self.app_state) {
-                    ("send_sms", AppState::ComposeSms { phone_number }) => {
+                // Handle confirmations.
+                // TODO: Really, the sms_input_view should also handle sending the SMS message,
+                //  however currently that requires sending notifications and calling app fns!
+                //  Maybe just add a ModalResponse::MessageSendResult?
+                match modal_id.as_str() {
+                    "send_sms" => {
+                        let phone_number = self.app_state.get_phone_number()?;
                         let message_content = self.sms_input_view.get_current_message();
-                        // self.handle_send_sms(phone_number, message_content).await
-                        None
+                        self.handle_send_sms(&phone_number, &*message_content).await
                     },
                     _ => None
                 }
             },
             ModalResponse::TextInput { modal_id, value } => {
                 let Some(value) = value else {
-                    return None; // User cancelled
+                    return None; // User cancelled.
                 };
 
-                // Handle text input based on modal_id and current state
+                // Handle text input.
                 match (modal_id.as_str(), &self.app_state) {
                     ("edit_friendly_name", AppState::InputPhone) => self.phone_input_view.handle_modal_response(modal_id, value).await,
                     _ => None
                 }
             }
         }
+    }
+
+    async fn handle_send_sms(&mut self, phone_number: &str, message_content: &str) -> Option<KeyResponse> {
+        let message = HttpOutgoingSmsMessage::simple_message(
+            phone_number.to_string(),
+            message_content.to_string()
+        );
+
+        // Send the SMS message.
+        let notification = match self.sms_client.http_arc().send_sms(&message).await {
+            Ok(response) => {
+
+                // This is to ensure that the message is pushed to views even if the WebSocket is disabled.
+                let _ = self.handle_new_message(
+                    SmsStoredMessage::from((message, response))
+                ).await;
+
+                NotificationType::GenericMessage {
+                    color: Color::Green,
+                    title: "Message Sent".to_string(),
+                    message: format!("Message #{} was sent (ref {})!", response.message_id, response.reference_id),
+                }
+            },
+            Err(e) => {
+                NotificationType::GenericMessage {
+                    color: Color::Red,
+                    title: "Send Failure".to_string(),
+                    message: e.to_string()
+                }
+            }
+        };
+
+        // Show resulting notification and transition back to messages view.
+        self.notification_view.add_notification(notification);
+        Some(KeyResponse::SetAppState(AppState::view_messages(phone_number)))
+    }
+
+    async fn handle_new_message(&mut self, sms_message: SmsStoredMessage) -> AppResult<()> {
+        // Only add the message if we're viewing messages for the same phone number.
+        let msg = SmsMessage::from(&sms_message);
+        let mut show_notification = true;
+        match &self.app_state {
+            AppState::ViewMessages { phone_number, .. } if phone_number == sms_message.phone_number.as_str() => {
+                self.messages_view.add_live_message(msg.clone());
+                show_notification = false;
+            }
+            _ => { }
+        }
+
+        // Push to phone list view always so it maintains order.
+        self.phone_input_view.push_new_number(
+            sms_message.phone_number.clone()
+        ).await?;
+
+        // Show a notification for incoming SMS messages.
+        // Use the SMSMessage variant for content as it's sanitized.
+        // Do not show the notification if we're already viewing those messages.
+        if show_notification && !sms_message.is_outgoing {
+            let notification = NotificationType::IncomingMessage {
+                phone: sms_message.phone_number.clone(),
+                content: msg.content
+            };
+            self.notification_view.add_notification(notification);
+        }
+
+        Ok(())
     }
 
     async fn start_sms_websocket(&self) -> AppResult<()> {
@@ -306,38 +376,7 @@ impl App {
         Ok(())
     }
 
-    async fn handle_new_message(&mut self, sms_message: SmsStoredMessage) -> AppResult<()> {
-        // Only add the message if we're viewing messages for the same phone number.
-        let msg = SmsMessage::from(&sms_message);
-        let mut show_notification = true;
-        match &self.app_state {
-            AppState::ViewMessages { phone_number, .. } if phone_number == sms_message.phone_number.as_str() => {
-                self.messages_view.add_live_message(msg.clone());
-                show_notification = false;
-            }
-            _ => { }
-        }
-
-        // Push to phone list view always so it maintains order.
-        self.phone_input_view.push_new_number(
-            sms_message.phone_number.clone()
-        ).await?;
-
-        // Show a notification for incoming SMS messages.
-        // Use the SMSMessage variant for content as it's sanitized.
-        // Do not show the notification if we're already viewing those messages.
-        if show_notification && !sms_message.is_outgoing {
-            let notification = NotificationType::IncomingMessage {
-                phone: sms_message.phone_number.clone(),
-                content: msg.content
-            };
-            self.notification_view.add_notification(notification);
-        }
-
-        Ok(())
-    }
-
-    async fn handle_live_events(&mut self) -> AppResult<()> {
+    async fn process_live_events(&mut self) -> AppResult<()> {
         while let Ok(msg) = self.message_receiver.try_recv() {
             match msg {
                 LiveEvent::NewMessage(sms_message) => self.handle_new_message(sms_message).await?,

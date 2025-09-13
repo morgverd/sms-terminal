@@ -26,8 +26,8 @@ impl SmsInputView {
         }
     }
 
-    pub fn get_current_message(&self) -> &str {
-        &self.sms_text_buffer
+    pub fn get_current_message(&self) -> String {
+        self.sms_text_buffer.clone()
     }
 
     fn move_cursor_left(&mut self) {
