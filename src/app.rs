@@ -106,8 +106,8 @@ impl App {
 
     async fn transition_state(&mut self, new_state: AppState) -> AppResult<()> {
         match &new_state {
-            AppState::ViewMessages(phone_number) => self.messages_view.reload(phone_number).await?,
-            AppState::ComposeSms(_) => self.sms_input_view.reload(),
+            AppState::ViewMessages { phone_number, reversed } => self.messages_view.load(phone_number, *reversed).await?,
+            AppState::ComposeSms { .. } => self.sms_input_view.load(),
             _ => { }
         };
 
@@ -139,8 +139,8 @@ impl App {
         // State specific key handlers
         match &self.app_state {
             AppState::InputPhone => self.phone_input_view.handle_key(key),
-            AppState::ViewMessages(phone_number) => self.messages_view.handle_key(key, phone_number).await,
-            AppState::ComposeSms(phone_number) => self.sms_input_view.handle_key(key, phone_number),
+            AppState::ViewMessages { phone_number, .. } => self.messages_view.handle_key(key, phone_number).await,
+            AppState::ComposeSms { phone_number } => self.sms_input_view.handle_key(key, phone_number),
             AppState::Error { dismissible, .. } => self.error_view.handle_key(key, *dismissible)
         }
     }
@@ -152,10 +152,10 @@ impl App {
             AppState::InputPhone => {
                 self.phone_input_view.render(frame, theme);
             },
-            AppState::ViewMessages(phone_number) => {
+            AppState::ViewMessages { phone_number, .. } => {
                 self.messages_view.render(frame, phone_number, theme);
             },
-            AppState::ComposeSms(phone_number) => {
+            AppState::ComposeSms { phone_number } => {
                 self.sms_input_view.render(frame, phone_number, theme);
             },
             AppState::Error { message, dismissible } => {
@@ -210,8 +210,8 @@ impl App {
                     // Only add the message if we're viewing messages for the same phone number.
                     let msg = SmsMessage::from(&sms_message);
                     let mut show_notification = true;
-                    if let AppState::ViewMessages(current_phone) = &self.app_state {
-                        if current_phone == sms_message.phone_number.as_str() {
+                    if let AppState::ViewMessages { phone_number, .. } = &self.app_state {
+                        if phone_number == sms_message.phone_number.as_str() {
                             self.messages_view.add_live_message(msg.clone());
                             show_notification = false;
                         }

@@ -9,7 +9,7 @@ use ratatui::Frame;
 use sms_client::http::HttpClient;
 use sms_client::http::types::HttpPaginationOptions;
 use std::sync::Arc;
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use unicode_width::UnicodeWidthStr;
 
 use crate::error::{AppError, AppResult};
@@ -17,7 +17,7 @@ use crate::theme::Theme;
 use crate::types::{AppState, KeyResponse, SmsMessage};
 
 const INFO_TEXT: [&str; 2] = [
-    "(↑/↓) navigate | (←/→) columns",
+    "(↑/↓) navigate | (←/→) columns | (Ctrl+r) order",
     "(Esc) back | (r) reload | (c) compose SMS"
 ];
 
@@ -34,6 +34,7 @@ pub struct MessagesTableView {
     scroll_state: ScrollbarState,
     is_loading: bool,
     has_more: bool,
+    reversed: bool,
     current_offset: u64,
     total_messages: usize
 }
@@ -47,14 +48,15 @@ impl MessagesTableView {
             scroll_state: ScrollbarState::new(0),
             is_loading: false,
             has_more: true,
+            reversed: false,
             current_offset: 0,
             total_messages: 0
         }
     }
 
-    pub async fn reload(&mut self, phone_number: &str) -> AppResult<()> {
-        self.reset();
-        self.load_messages(phone_number).await
+    pub async fn load(&mut self, phone_number: &str, reversed: bool) -> AppResult<()> {
+        self.reversed = reversed;
+        self.reload(phone_number).await
     }
 
     pub fn add_live_message(&mut self, message: SmsMessage) {
@@ -75,7 +77,12 @@ impl MessagesTableView {
                 return Some(KeyResponse::SetAppState(AppState::InputPhone));
             },
             KeyCode::Char('c') => {
-                let state = AppState::ComposeSms(phone_number.to_string());
+                let state = AppState::compose_sms(phone_number.to_string());
+                return Some(KeyResponse::SetAppState(state));
+            },
+            KeyCode::Char('r') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.reset();
+                let state = AppState::ViewMessages { phone_number: phone_number.to_string(), reversed: !self.reversed };
                 return Some(KeyResponse::SetAppState(state));
             },
             KeyCode::Char('r') => {
@@ -126,6 +133,11 @@ impl MessagesTableView {
         self.state = TableState::default();
     }
 
+    async fn reload(&mut self, phone_number: &str) -> AppResult<()> {
+        self.reset();
+        self.load_messages(phone_number).await
+    }
+
     async fn load_messages(&mut self, phone_number: &str) -> AppResult<()> {
         if phone_number.is_empty() {
             return Err(AppError::NoPhoneNumber);
@@ -136,7 +148,8 @@ impl MessagesTableView {
 
         let pagination = HttpPaginationOptions::default()
             .with_limit(MESSAGES_PER_PAGE)
-            .with_offset(self.current_offset);
+            .with_offset(self.current_offset)
+            .with_reverse(self.reversed);
 
         self.is_loading = true;
         let result = self.http_client.as_ref().get_messages(phone_number, Some(pagination)).await;
@@ -341,6 +354,13 @@ impl MessagesTableView {
             INFO_TEXT[1].to_string()
         ];
 
+        // Add sort order indicator
+        let order_indicator = if self.reversed {
+            "↓ Oldest First"
+        } else {
+            "↑ Newest First"
+        };
+
         if !self.messages.is_empty() {
             let status = if self.is_loading {
                 "⟳ Loading more..."
@@ -351,15 +371,16 @@ impl MessagesTableView {
             };
 
             footer_lines.push(format!(
-                "💬 {} | ✉️ {} messages loaded | {}",
+                "💬 {} | ✉️ {} messages | {} | {}",
                 phone_number,
                 self.total_messages,
+                order_indicator,
                 status
             ));
         } else if self.is_loading {
             footer_lines.push("⟳ Loading messages...".to_string());
         } else if !phone_number.is_empty() {
-            footer_lines.push(format!("💬 {} | No messages found", phone_number));
+            footer_lines.push(format!("💬 {} | No messages found | {}", phone_number, order_indicator));
         }
 
         let info_footer = Paragraph::new(Text::from(footer_lines.join("\n")))

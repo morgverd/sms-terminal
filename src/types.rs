@@ -54,11 +54,29 @@ impl From<&SmsStoredMessage> for SmsMessage {
 #[derive(Debug, Clone, PartialEq)]
 pub enum AppState {
     InputPhone,
-    ViewMessages(String),
-    ComposeSms(String),
+    ViewMessages {
+        phone_number: String,
+        reversed: bool
+    },
+    ComposeSms {
+        phone_number: String
+    },
     Error {
         message: String,
         dismissible: bool
+    }
+}
+impl AppState {
+    pub fn view_messages(phone_number: String) -> Self {
+        Self::ViewMessages { phone_number, reversed: false }
+    }
+
+    pub fn compose_sms(phone_number: String) -> Self {
+        Self::ComposeSms { phone_number }
+    }
+    
+    pub fn error(message: String) -> Self {
+        Self::Error { message, dismissible: false }
     }
 }
 impl From<AppError> for AppState {

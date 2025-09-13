@@ -118,7 +118,7 @@ impl NotificationView {
                 {
                     self.dismiss_all();
 
-                    let state = AppState::ViewMessages(phone_number);
+                    let state = AppState::view_messages(phone_number);
                     return Some(KeyResponse::SetAppState(state));
                 }
             },

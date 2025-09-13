@@ -90,7 +90,7 @@ impl PhoneInputView {
                     self.input_buffer.clear();
 
                     return Some(KeyResponse::SetAppState(
-                        AppState::ViewMessages(phone_number)
+                        AppState::view_messages(phone_number)
                     ));
                 }
             },

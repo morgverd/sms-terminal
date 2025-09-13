@@ -1728,7 +1728,7 @@ dependencies = [
 
 [[package]]
 name = "sms-terminal"
-version = "1.2.0"
+version = "0.6.2"
 dependencies = [
  "ansi-escape-sequences",
  "chrono",

@@ -30,7 +30,7 @@ impl SmsInputView {
         }
     }
 
-    pub fn reload(&mut self) {
+    pub fn load(&mut self) {
         self.cursor_position = 0;
         self.sms_text_buffer.clear();
         self.hide_confirmation();
@@ -50,7 +50,7 @@ impl SmsInputView {
                     if matches!(self.confirmation_state, ConfirmationState::Confirming { selected_yes: true }) {
 
                         // TODO: Actually send the SMS message!
-                        let state = AppState::ViewMessages(phone_number.to_string());
+                        let state = AppState::view_messages(phone_number.to_string());
                         return Some(KeyResponse::SetAppState(state));
                     }
                     self.hide_confirmation();
@@ -63,7 +63,7 @@ impl SmsInputView {
         // Normal SMS input handling
         match key.code {
             KeyCode::Esc => {
-                let state = AppState::ViewMessages(phone_number.to_string());
+                let state = AppState::view_messages(phone_number.to_string());
                 self.sms_text_buffer.clear();
                 return Some(KeyResponse::SetAppState(state));
             },
