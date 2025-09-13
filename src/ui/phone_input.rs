@@ -7,6 +7,7 @@ use ratatui::Frame;
 use sms_client::error::ClientError;
 use sms_client::http::HttpClient;
 use sms_client::http::types::HttpPaginationOptions;
+
 use crate::error::AppResult;
 use crate::theme::Theme;
 use crate::types::{AppState, KeyResponse};
@@ -29,7 +30,7 @@ impl PhoneInputView {
             recent_contacts,
             selected_contact: None,
             input_buffer: String::new(),
-            max_contacts: 10
+            max_contacts: 14
         }
     }
 

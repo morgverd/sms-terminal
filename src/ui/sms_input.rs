@@ -5,6 +5,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Clear, Paragraph, Wrap};
 use ratatui::Frame;
 use ratatui::style::palette::tailwind;
+use sms_client::http::types::HttpOutgoingSmsMessage;
 
 use crate::theme::Theme;
 use crate::types::{AppState, KeyResponse};
@@ -19,24 +20,32 @@ pub enum ConfirmationState {
 pub struct SmsInputView {
     cursor_position: usize,
     confirmation_state: ConfirmationState,
-    sms_text_buffer: String
+    sms_text_buffer: String,
+    is_sending: bool
 }
 impl SmsInputView {
     pub fn new() -> Self {
         Self {
             cursor_position: 0,
             confirmation_state: ConfirmationState::None,
-            sms_text_buffer: String::new()
+            sms_text_buffer: String::new(),
+            is_sending: false
         }
     }
 
     pub fn load(&mut self) {
         self.cursor_position = 0;
+        self.is_sending = false;
         self.sms_text_buffer.clear();
         self.hide_confirmation();
     }
 
     pub fn handle_key(&mut self, key: KeyEvent, phone_number: &str) -> Option<KeyResponse> {
+        // Ignore all keyboard input while sending the message
+        if self.is_sending {
+            return None;
+        }
+
         // If confirmation dialog is showing, handle its input first
         if self.is_confirming() {
             match key.code {
@@ -49,9 +58,16 @@ impl SmsInputView {
                 KeyCode::Enter => {
                     if matches!(self.confirmation_state, ConfirmationState::Confirming { selected_yes: true }) {
 
-                        // TODO: Actually send the SMS message!
+                        // Use a simple outgoing message with target from state and message buffer
+                        let message = HttpOutgoingSmsMessage::simple_message(
+                            phone_number.to_string(),
+                            self.sms_text_buffer.clone()
+                        );
+
+                        // Return to messages view state afterward
+                        self.is_sending = true;
                         let state = AppState::view_messages(phone_number.to_string());
-                        return Some(KeyResponse::SetAppState(state));
+                        return Some(KeyResponse::SendMessage(message, state));
                     }
                     self.hide_confirmation();
                 },

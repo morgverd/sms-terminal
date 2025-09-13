@@ -40,7 +40,8 @@ pub struct App {
     notification_view: NotificationView,
     message_receiver: mpsc::UnboundedReceiver<LiveEvent>,
     message_sender: mpsc::UnboundedSender<LiveEvent>,
-    sms_client: Option<Client>
+    sms_client: Client,
+    websocket_enabled: bool
 }
 impl App {
     pub fn new(config: TerminalConfig) -> Result<Self> {
@@ -59,27 +60,31 @@ impl App {
             notification_view: NotificationView::new(),
             message_receiver: rx,
             message_sender: tx,
-            sms_client: config.websocket.then(|| client)
+            sms_client: client,
+            websocket_enabled: config.websocket
         })
     }
 
     pub async fn run(mut self, mut terminal: DefaultTerminal) -> Result<()> {
-        if let Some(client) = &self.sms_client {
-            self.start_sms_websocket(client).await?;
+        if self.websocket_enabled {
+            self.start_sms_websocket().await?;
         } else {
 
             // Show a notification informing the user that their websocket
-            // is disabled and therefore live updates will not work.
+            // is disabled and therefore live updates will not work
             let notification = NotificationType::GenericMessage {
                 color: Color::Yellow,
                 title: "WebSocket Disabled".to_string(),
                 message: "Live updates will not show!".to_string(),
             };
             self.notification_view.add_notification(notification);
-        }
+        };
 
-        // Set initial state (ensure title is set).
-        self.transition_state(AppState::InputPhone).await?;
+        // Transition into starting state and get SMS HTTP client
+        if !self.transition_state(AppState::InputPhone).await {
+            return Err(AppError::ViewError("Could not transition into initial view!").into());
+        }
+        let http = self.sms_client.http_arc();
 
         loop {
             terminal.draw(|frame| self.render(frame))?;
@@ -91,38 +96,73 @@ impl App {
                         continue;
                     }
 
-                    match self.get_key_response(key).await {
-                        Some(KeyResponse::SetAppState(state)) => {
+                    // Transition the state, handling error format easily
+                    let response = self.get_key_response(key).await;
 
-                            // Attempt to transition app state, otherwise show an error.
-                            if let Err(e) = self.transition_state(state).await {
-                                self.app_state = AppState::from(e);
-                            }
+                    match response {
+                        Some(KeyResponse::SetAppState(state)) => {
+                            let _ = self.transition_state(state).await;
+                        },
+                        Some(KeyResponse::SendMessage(message, state)) => {
+
+                            // Send the SMS message as provided
+                            let notification = match http.send_sms(message).await {
+                                Ok(response) => {
+                                    NotificationType::GenericMessage {
+                                        color: Color::Green,
+                                        title: "Message Sent".to_string(),
+                                        message: format!("Message #{} was sent (ref {})!", response.message_id, response.reference_id),
+                                    }
+                                },
+                                Err(e) => {
+                                    NotificationType::GenericMessage {
+                                        color: Color::Red,
+                                        title: "Send Failure".to_string(),
+                                        message: e.to_string()
+                                    }
+                                }
+                            };
+
+                            // Show resulting notification and change to result state
+                            self.notification_view.add_notification(notification);
+                            let _ = self.transition_state(state).await;
                         },
                         Some(KeyResponse::Quit) => return Ok(()),
                         _ => { }
-                    }
+                    };
                 }
             }
         }
     }
 
-    async fn transition_state(&mut self, new_state: AppState) -> AppResult<()> {
-        match &new_state {
-            AppState::InputPhone => self.phone_input_view.load().await?,
-            AppState::ViewMessages { phone_number, reversed } => self.messages_view.load(phone_number, *reversed).await?,
-            AppState::ComposeSms { .. } => self.sms_input_view.load(),
-            _ => { }
+    async fn transition_state(&mut self, new_state: AppState) -> bool {
+        let result = match &new_state {
+            AppState::InputPhone => self.phone_input_view.load().await,
+            AppState::ViewMessages { phone_number, reversed } => self.messages_view.load(phone_number, *reversed).await,
+            AppState::ComposeSms { .. } => {
+                self.sms_input_view.load();
+                Ok(())
+            },
+            _ => Ok(())
+        };
+
+        // Get the actual state by first checking if any of
+        // the view transition results returned an error.
+        let (actual_state, is_successful) = if let Err(e) = result {
+            (AppState::from(e), false)
+        } else {
+            (new_state, true)
         };
 
         let _ = crossterm::execute!(
             std::io::stdout(),
-            crossterm::terminal::SetTitle(format!("SMS Terminal v{} ｜ {}", crate::VERSION, new_state)),
+            crossterm::terminal::SetTitle(format!("SMS Terminal v{} ｜ {}", crate::VERSION, actual_state)),
         );
 
-        self.app_state = new_state;
+        self.app_state = actual_state;
         self.key_debouncer.reset();
-        Ok(())
+
+        is_successful
     }
 
     async fn get_key_response(&mut self, key: KeyEvent) -> Option<KeyResponse> {
@@ -162,27 +202,19 @@ impl App {
         let theme = self.theme_manager.current();
 
         match &self.app_state {
-            AppState::InputPhone => {
-                self.phone_input_view.render(frame, theme);
-            },
-            AppState::ViewMessages { phone_number, .. } => {
-                self.messages_view.render(frame, phone_number, theme);
-            },
-            AppState::ComposeSms { phone_number } => {
-                self.sms_input_view.render(frame, phone_number, theme);
-            },
-            AppState::Error { message, dismissible } => {
-                self.error_view.render(frame, message, *dismissible, theme);
-            }
+            AppState::InputPhone => self.phone_input_view.render(frame, theme),
+            AppState::ViewMessages { phone_number, .. } => self.messages_view.render(frame, phone_number, theme),
+            AppState::ComposeSms { phone_number } => self.sms_input_view.render(frame, phone_number, theme),
+            AppState::Error { message, dismissible } => self.error_view.render(frame, message, *dismissible, theme)
         }
 
         // Render notifications on top of everything
         self.notification_view.render(frame, theme);
     }
 
-    async fn start_sms_websocket(&self, client: &Client) -> AppResult<()> {
+    async fn start_sms_websocket(&self) -> AppResult<()> {
         let ws_sender = self.message_sender.clone();
-        client.on_message_simple(move |message| {
+        self.sms_client.on_message_simple(move |message| {
             match message {
                 WebsocketMessage::IncomingMessage(sms) | WebsocketMessage::OutgoingMessage(sms) => {
                     let _ = ws_sender.send(LiveEvent::NewMessage(sms));
@@ -200,7 +232,7 @@ impl App {
         }).await?;
 
         // Create websocket worker task.
-        let client = client.clone();
+        let client = self.sms_client.clone();
         let task_sender = self.message_sender.clone();
         tokio::spawn(async move {
 

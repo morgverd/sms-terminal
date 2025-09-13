@@ -499,7 +499,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -1495,7 +1495,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.11.0",
- "windows-sys 0.61.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -1710,8 +1710,8 @@ checksum = "b7c388c1b5e93756d0c740965c41e8822f866621d41acbdf6336a6a168f8840c"
 
 [[package]]
 name = "sms-client"
-version = "0.1.0"
-source = "git+https://github.com/morgverd/sms-client.git#ea29a1225d14d39c517fd8c649d10f5f94e5d300"
+version = "1.0.1"
+source = "git+https://github.com/morgverd/sms-client.git#e8ff901f47127e856ca8e5787f3aa8cfd3b87acc"
 dependencies = [
  "futures-util",
  "http",
@@ -1863,7 +1863,7 @@ dependencies = [
  "getrandom 0.3.3",
  "once_cell",
  "rustix 1.1.2",
- "windows-sys 0.61.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]

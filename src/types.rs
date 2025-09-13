@@ -4,6 +4,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use sms_client::types::SmsStoredMessage;
 use std::time::{Duration, Instant};
 use ansi_escape_sequences::strip_ansi;
+use sms_client::http::types::HttpOutgoingSmsMessage;
 use unicode_general_category::{get_general_category, GeneralCategory};
 use crate::error::AppError;
 
@@ -98,6 +99,7 @@ impl Display for AppState {
 /// Returned by a View key_handler to do some app action.
 pub enum KeyResponse {
     SetAppState(AppState),
+    SendMessage(HttpOutgoingSmsMessage, AppState), // message, next_state
     Quit
 }
 

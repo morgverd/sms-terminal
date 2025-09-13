@@ -6,6 +6,7 @@ use ratatui::Frame;
 use std::time::{Duration, Instant};
 use crossterm::event::{KeyCode, KeyEvent};
 use sms_client::types::ModemStatusUpdateState;
+
 use crate::theme::Theme;
 use crate::types::{AppState, KeyResponse};
 
