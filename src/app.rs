@@ -84,11 +84,10 @@ impl App {
         if !self.transition_state(AppState::InputPhone).await {
             return Err(AppError::ViewError("Could not transition into initial view!").into());
         }
-        let http = self.sms_client.http_arc();
 
         loop {
             terminal.draw(|frame| self.render(frame))?;
-            self.process_live_events()?;
+            self.handle_live_events().await?;
 
             if event::poll(Duration::from_millis(100))? {
                 if let Event::Key(key) = event::read()? {
@@ -96,40 +95,13 @@ impl App {
                         continue;
                     }
 
-                    // Transition the state, handling error format easily
-                    let response = self.get_key_response(key).await;
-
-                    match response {
-                        Some(KeyResponse::SetAppState(state)) => {
-                            let _ = self.transition_state(state).await;
-                        },
-                        Some(KeyResponse::SendMessage(message, state)) => {
-
-                            // Send the SMS message as provided
-                            let notification = match http.send_sms(message).await {
-                                Ok(response) => {
-                                    NotificationType::GenericMessage {
-                                        color: Color::Green,
-                                        title: "Message Sent".to_string(),
-                                        message: format!("Message #{} was sent (ref {})!", response.message_id, response.reference_id),
-                                    }
-                                },
-                                Err(e) => {
-                                    NotificationType::GenericMessage {
-                                        color: Color::Red,
-                                        title: "Send Failure".to_string(),
-                                        message: e.to_string()
-                                    }
-                                }
-                            };
-
-                            // Show resulting notification and change to result state
-                            self.notification_view.add_notification(notification);
-                            let _ = self.transition_state(state).await;
-                        },
-                        Some(KeyResponse::Quit) => return Ok(()),
-                        _ => { }
-                    };
+                    // Transition the state, handling error format easily.
+                    // This is also the only direct way to quit, by returning true in the key response.
+                    if let Some(response) = self.get_key_response(key).await {
+                        if self.handle_key_response(response).await {
+                            return Ok(());
+                        }
+                    }
                 }
             }
         }
@@ -163,6 +135,47 @@ impl App {
         self.key_debouncer.reset();
 
         is_successful
+    }
+
+    async fn handle_key_response(&mut self, response: KeyResponse) -> bool {
+        match response {
+            KeyResponse::SetAppState(state) => {
+                let _ = self.transition_state(state).await;
+            },
+            KeyResponse::SendMessage(message, state) => {
+
+                // Send the SMS message as provided
+                let notification = match self.sms_client.http_arc().send_sms(&message).await {
+                    Ok(response) => {
+
+                        // Convert message and response into a stored message
+                        // format so it can be pushed to other views.
+                        let _ = self.handle_new_message(
+                            SmsStoredMessage::from((message, response))
+                        ).await;
+
+                        NotificationType::GenericMessage {
+                            color: Color::Green,
+                            title: "Message Sent".to_string(),
+                            message: format!("Message #{} was sent (ref {})!", response.message_id, response.reference_id),
+                        }
+                    },
+                    Err(e) => {
+                        NotificationType::GenericMessage {
+                            color: Color::Red,
+                            title: "Send Failure".to_string(),
+                            message: e.to_string()
+                        }
+                    }
+                };
+
+                // Show resulting notification and change to result state
+                self.notification_view.add_notification(notification);
+                let _ = self.transition_state(state).await;
+            },
+            KeyResponse::Quit => return true
+        };
+        false
     }
 
     async fn get_key_response(&mut self, key: KeyEvent) -> Option<KeyResponse> {
@@ -247,44 +260,45 @@ impl App {
         Ok(())
     }
 
-    fn process_live_events(&mut self) -> AppResult<()> {
+    async fn handle_new_message(&mut self, sms_message: SmsStoredMessage) -> AppResult<()> {
+        // Only add the message if we're viewing messages for the same phone number.
+        let msg = SmsMessage::from(&sms_message);
+        let mut show_notification = true;
+        match &self.app_state {
+            AppState::ViewMessages { phone_number, .. } if phone_number == sms_message.phone_number.as_str() => {
+                self.messages_view.add_live_message(msg.clone());
+                show_notification = false;
+            }
+            _ => { }
+        }
+
+        // Push to phone list view always so it maintains order.
+        self.phone_input_view.push_new_number(
+            sms_message.phone_number.clone()
+        ).await?;
+
+        // Show a notification for incoming SMS messages.
+        // Use the SMSMessage variant for content as it's sanitized.
+        // Do not show the notification if we're already viewing those messages.
+        if show_notification && !sms_message.is_outgoing {
+            let notification = NotificationType::IncomingMessage {
+                phone: sms_message.phone_number.clone(),
+                content: msg.content
+            };
+            self.notification_view.add_notification(notification);
+        }
+
+        Ok(())
+    }
+
+    async fn handle_live_events(&mut self) -> AppResult<()> {
         while let Ok(msg) = self.message_receiver.try_recv() {
             match msg {
-                LiveEvent::NewMessage(sms_message) => {
-
-                    // Only add the message if we're viewing messages for the same phone number.
-                    let msg = SmsMessage::from(&sms_message);
-                    let mut show_notification = true;
-                    match &self.app_state {
-                        AppState::ViewMessages { phone_number, .. } if phone_number == sms_message.phone_number.as_str() => {
-                            self.messages_view.add_live_message(msg.clone());
-                            show_notification = false;
-                        }
-                        _ => { }
-                    }
-
-                    // Push to phone list view always so it maintains order.
-                    self.phone_input_view.push_new_number(
-                        sms_message.phone_number.clone()
-                    );
-
-                    // Show a notification for incoming SMS messages.
-                    // Use the SMSMessage variant for content as it's sanitized.
-                    // Do not show the notification if we're already viewing those messages.
-                    if show_notification && !sms_message.is_outgoing {
-                        let notification = NotificationType::IncomingMessage {
-                            phone: sms_message.phone_number.clone(),
-                            content: msg.content
-                        };
-                        self.notification_view.add_notification(notification);
-                    }
-                },
+                LiveEvent::NewMessage(sms_message) => self.handle_new_message(sms_message).await?,
                 LiveEvent::SendFailure(_) => unimplemented!("Oops!"),
-                LiveEvent::ShowNotification(notification) => {
-                    self.notification_view.add_notification(notification)
-                },
+                LiveEvent::ShowNotification(notification) => self.notification_view.add_notification(notification),
                 LiveEvent::ShowError { message, dismissible } => {
-                    self.app_state = AppState::Error { message, dismissible };
+                    let _ = self.transition_state(AppState::Error { message, dismissible });
                 }
             }
         }

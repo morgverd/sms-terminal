@@ -4,9 +4,10 @@ use ratatui::layout::{Alignment, Constraint, Layout};
 use ratatui::style::{Color, Style};
 use ratatui::widgets::{Block, BorderType, Clear, List, ListItem, Paragraph};
 use ratatui::Frame;
+
 use sms_client::error::ClientError;
 use sms_client::http::HttpClient;
-use sms_client::http::types::HttpPaginationOptions;
+use sms_client::http::types::{HttpPaginationOptions, LatestNumberFriendlyNamePair};
 
 use crate::error::AppResult;
 use crate::theme::Theme;
@@ -15,7 +16,7 @@ use super::centered_rect;
 
 pub struct PhoneInputView {
     http_client: Arc<HttpClient>,
-    recent_contacts: Vec<(String, String)>, // (phone, name)
+    recent_contacts: Vec<LatestNumberFriendlyNamePair>, // (phone, friendly name)
     selected_contact: Option<usize>,
     input_buffer: String,
     max_contacts: usize
@@ -34,19 +35,25 @@ impl PhoneInputView {
         }
     }
 
-    pub fn push_new_number(&mut self, phone_number: String) {
+    pub async fn push_new_number(&mut self, phone_number: String) -> AppResult<()> {
         if let Some(pos) = self.recent_contacts.iter().position(|(key, _)| *key == phone_number) {
-            // If found, move to the front.
+            // If found, move to the front
             let item = self.recent_contacts.remove(pos);
             self.recent_contacts.insert(0, item);
         } else {
-            // If not found, insert at front.
-            self.recent_contacts.insert(0, (phone_number.to_string(), "Unknown!".to_string()));
+            // Get any existing friendly name
+            let friendly_name = self.http_client.get_friendly_name(&phone_number)
+                .await
+                .map_err(|e| ClientError::from(e))?;
 
+            // If not found, insert at front
+            self.recent_contacts.insert(0, (phone_number, friendly_name));
             if self.recent_contacts.len() > self.max_contacts {
                 self.recent_contacts.truncate(self.max_contacts);
             }
         }
+
+        Ok(())
     }
 
     pub async fn load(&mut self) -> AppResult<()> {
@@ -54,8 +61,7 @@ impl PhoneInputView {
         self.recent_contacts = self.http_client.get_latest_numbers(Some(pagination))
             .await
             .map_err(|e| ClientError::from(e))?
-            .iter()
-            .map(|phone_number| (phone_number.clone(), "Unknown".to_string()))
+            .into_iter()
             .collect();
 
         // Reset selection if OOB
@@ -224,7 +230,12 @@ impl PhoneInputView {
                 .enumerate()
                 .take(8) // Limit to max 8 items
                 .map(|(i, (phone, name))| {
-                    let content = format!("{}  {}", phone, name);
+                    let content = if let Some(friendly_name) = name {
+                        format!("{} ｜ {}", phone, friendly_name)
+                    } else {
+                        phone.to_string()
+                    };
+
                     let style = if Some(i) == self.selected_contact {
                         Style::default().bg(theme.text_accent).fg(Color::Black)
                     } else {
