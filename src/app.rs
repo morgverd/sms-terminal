@@ -12,14 +12,14 @@ use tokio::sync::mpsc;
 use crate::TerminalConfig;
 use crate::error::{AppError, AppResult};
 use crate::theme::ThemeManager;
-use crate::types::{AppState, KeyDebouncer, KeyPress, KeyResponse, SmsMessage, DEBOUNCE_DURATION, ModalResponse, Modal};
+use crate::types::{AppState, KeyDebouncer, KeyPress, KeyResponse, SmsMessage, DEBOUNCE_DURATION, ModalResponse, Modal, ModalMetadata};
 use crate::ui::dialog::Dialog;
 use crate::ui::error::ErrorView;
 use crate::ui::messages_table::MessagesTableView;
 use crate::ui::notification::{NotificationType, NotificationView};
 use crate::ui::phone_input::PhoneInputView;
 use crate::ui::sms_input::SmsInputView;
-use crate::ui::View;
+use crate::ui::{ModalResponder, View};
 
 #[derive(Debug, Clone)]
 pub enum LiveEvent {
@@ -193,22 +193,23 @@ impl App {
 
         // Handle modal interactions
         if let Some(modal) = &mut self.current_modal {
-            let modal_response = match modal {
-                Modal::Confirmation { dialog, id: modal_id } => {
-                    if let Some(confirmed) = dialog.handle_key(key) {
+            let (modal_response, metadata) = match modal {
+                Modal::Confirmation { dialog, id, metadata } => {
+                    let response = if let Some(confirmed) = dialog.handle_key(key) {
                         Some(ModalResponse::Confirmation {
-                            modal_id: modal_id.clone(),
+                            modal_id: id.clone(),
                             confirmed,
                         })
                     } else {
                         None
-                    }
+                    };
+                    (response, metadata.clone())
                 },
-                Modal::TextInput { dialog, id: modal_id } => {
-                    if let Some(confirmed) = dialog.handle_key(key) {
+                Modal::TextInput { dialog, id, metadata } => {
+                    let response = if let Some(confirmed) = dialog.handle_key(key) {
                         Some(ModalResponse::TextInput {
-                            modal_id: modal_id.clone(),
-                            value:  if confirmed {
+                            modal_id: id.clone(),
+                            value: if confirmed {
                                 dialog.get_input().map(|s| s.to_string())
                             } else {
                                 None
@@ -216,12 +217,13 @@ impl App {
                         })
                     } else {
                         None
-                    }
+                    };
+                    (response, metadata.clone())
                 }
             };
 
             if let Some(response) = modal_response {
-                let key_response = self.handle_modal_response(response).await;
+                let key_response = self.handle_modal_response(response, metadata).await;
                 self.current_modal = None;
                 return key_response;
             }
@@ -242,17 +244,14 @@ impl App {
         }
     }
 
-    async fn handle_modal_response(&mut self, response: ModalResponse) -> Option<KeyResponse> {
+    async fn handle_modal_response(&mut self, response: ModalResponse, metadata: ModalMetadata) -> Option<KeyResponse> {
         match response {
             ModalResponse::Confirmation { modal_id, confirmed } => {
                 if !confirmed {
                     return None; // User cancelled
                 }
 
-                // Handle confirmations.
-                // TODO: Really, the sms_input_view should also handle sending the SMS message,
-                //  however currently that requires sending notifications and calling app fns!
-                //  Maybe just add a ModalResponse::MessageSendResult?
+                // Handle confirmations
                 match modal_id.as_str() {
                     "send_sms" => {
                         let phone_number = self.app_state.get_phone_number()?;
@@ -264,12 +263,16 @@ impl App {
             },
             ModalResponse::TextInput { modal_id, value } => {
                 let Some(value) = value else {
-                    return None; // User cancelled.
+                    return None; // User cancelled
                 };
 
-                // Handle text input.
-                match (modal_id.as_str(), &self.app_state) {
-                    ("edit_friendly_name", AppState::InputPhone) => self.phone_input_view.handle_modal_response(modal_id, value).await,
+                // Delegate to the appropriate view's modal responder
+                match (&mut self.app_state, modal_id.as_str()) {
+                    (AppState::InputPhone, "edit_friendly_name") => {
+                        self.phone_input_view.handle_modal_response(
+                            modal_id.clone(), value, metadata
+                        ).await
+                    },
                     _ => None
                 }
             }

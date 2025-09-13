@@ -104,7 +104,7 @@ impl MessagesTableView {
                 self.has_more = count == MESSAGES_PER_PAGE as usize;
                 Ok(())
             }
-            Err(e) => Err(AppError::HttpError(format!("Failed to load messages: {}", e)))
+            Err(e) => Err(AppError::HttpError(e))
         }
     }
 

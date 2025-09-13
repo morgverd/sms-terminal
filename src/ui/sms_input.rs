@@ -133,11 +133,9 @@ impl View for SmsInputView {
             },
             KeyCode::Char(' ') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 if !self.sms_text_buffer.is_empty() {
-                    let modal =  Modal::from(
-                        ("send_sms", ConfirmationDialog::new(
-                            format!("Send SMS to {}?", ctx)
-                        ))
-                    );
+
+                    // Show send confirmation modal.
+                    let modal = Modal::confirmation("send_sms", ConfirmationDialog::new(format!("Send SMS to {}?", ctx)));
                     return Some(KeyResponse::ShowModal(modal));
                 }
             },

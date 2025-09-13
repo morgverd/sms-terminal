@@ -235,7 +235,7 @@ pub struct TextInputDialog {
     pub cursor_position: usize,
     pub selected_ok: bool,
     pub placeholder: String,
-    pub max_length: Option<usize>,
+    pub max_length: Option<usize>
 }
 impl TextInputDialog {
 
@@ -250,13 +250,8 @@ impl TextInputDialog {
             cursor_position: 0,
             selected_ok: true,
             placeholder: String::new(),
-            max_length: None,
+            max_length: None
         }
-    }
-
-    pub fn with_placeholder(mut self, placeholder: impl Into<String>) -> Self {
-        self.placeholder = placeholder.into();
-        self
     }
 
     pub fn with_max_length(mut self, max_length: usize) -> Self {

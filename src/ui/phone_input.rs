@@ -1,4 +1,3 @@
-use std::fmt::format;
 use std::sync::Arc;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::{Alignment, Constraint, Layout};
@@ -12,8 +11,8 @@ use sms_client::http::types::{HttpPaginationOptions, LatestNumberFriendlyNamePai
 
 use crate::error::AppResult;
 use crate::theme::Theme;
-use crate::types::{AppState, KeyResponse, Modal};
-use crate::ui::{centered_rect, View};
+use crate::types::{AppState, KeyResponse, Modal, ModalMetadata};
+use crate::ui::{centered_rect, ModalResponder, View};
 use crate::ui::dialog::TextInputDialog;
 
 pub struct PhoneInputView {
@@ -21,10 +20,8 @@ pub struct PhoneInputView {
     recent_contacts: Vec<LatestNumberFriendlyNamePair>, // (phone, friendly name)
     selected_contact: Option<usize>,
     input_buffer: String,
-    max_contacts: usize,
-    pending_friendly_name_edit: Option<String>, // Phone number being edited
+    max_contacts: usize
 }
-
 impl PhoneInputView {
     pub fn with_http(http_client: Arc<HttpClient>) -> Self {
         let recent_contacts = vec![];
@@ -33,8 +30,7 @@ impl PhoneInputView {
             recent_contacts,
             selected_contact: None,
             input_buffer: String::new(),
-            max_contacts: 14,
-            pending_friendly_name_edit: None,
+            max_contacts: 14
         }
     }
 
@@ -57,36 +53,6 @@ impl PhoneInputView {
         }
 
         Ok(())
-    }
-
-    pub async fn handle_modal_response(&mut self, modal_id: String, value: String) -> Option<KeyResponse> {
-        if modal_id == "edit_friendly_name" {
-            if let Some(phone_number) = &self.pending_friendly_name_edit {
-                // Save the friendly name
-                let name_to_save = if value.trim().is_empty() {
-                    None
-                } else {
-                    Some(value.trim().to_string())
-                };
-
-                // Save to backend asynchronously
-                let http_client = self.http_client.clone();
-                let phone = phone_number.clone();
-                let name = name_to_save.clone();
-                tokio::spawn(async move {
-                    let _ = http_client.set_friendly_name(&phone, name.as_deref()).await;
-                });
-
-                // Update local cache immediately for better UX
-                if let Some(contact) = self.recent_contacts.iter_mut()
-                    .find(|(p, _)| p == phone_number) {
-                    contact.1 = name_to_save;
-                }
-
-                self.pending_friendly_name_edit = None;
-            }
-        }
-        None
     }
 
     fn select_next(&mut self) {
@@ -117,7 +83,16 @@ impl PhoneInputView {
     fn clear_selection(&mut self) {
         self.selected_contact = None;
     }
+
+    fn get_max_phone_length(&self) -> usize {
+        self.recent_contacts
+            .iter()
+            .map(|(phone, _)| phone.len())
+            .max()
+            .unwrap_or(0)
+    }
 }
+
 impl View for PhoneInputView {
     type Context<'ctx> = ();
 
@@ -149,21 +124,21 @@ impl View for PhoneInputView {
                 return Some(KeyResponse::Quit);
             },
             KeyCode::Char('e') | KeyCode::Char('E') => {
-                if let Some(selected) = self.selected_contact {
-                    if let Some((phone, existing_friendly_name)) = self.recent_contacts.get(selected) {
-                        self.pending_friendly_name_edit = Some(phone.clone());
+                let selected = self.selected_contact?;
+                let (phone, name) = self.recent_contacts.get(selected)?;
 
-                        // Create text input dialog with current friendly name
-                        let mut dialog = TextInputDialog::new("Edit Friendly Name", format!("Name for {}", phone)).with_max_length(50);
-                        if let Some(existing) = existing_friendly_name {
-                            dialog = dialog.with_initial_value(existing);
-                        }
+                let mut dialog = TextInputDialog::new("Edit Friendly Name", format!("Name for {}", phone))
+                    .with_max_length(50);
 
-                        return Some(KeyResponse::ShowModal(
-                            Modal::from(("edit_friendly_name", dialog))
-                        ));
-                    }
+                if let Some(existing) = name {
+                    dialog = dialog.with_initial_value(existing);
                 }
+
+                // Include selected phone number in modal metadata for the response!
+                let modal = Modal::text_input("edit_friendly_name", dialog)
+                    .with_metadata(ModalMetadata::phone(phone));
+
+                return Some(KeyResponse::ShowModal(modal));
             },
             KeyCode::Enter => {
                 let current_phone = self.selected_contact
@@ -284,13 +259,14 @@ impl View for PhoneInputView {
                 .style(theme.secondary_style());
             frame.render_widget(header, layout[4]);
 
+            let max_phone_length = self.get_max_phone_length();
             let items: Vec<ListItem> = self.recent_contacts
                 .iter()
                 .enumerate()
-                .take(8) // Limit to max 8 items
                 .map(|(i, (phone, name))| {
                     let content = if let Some(friendly_name) = name {
-                        format!("{} ｜ {}", phone, friendly_name)
+                        // Pad the phone number to align the separators
+                        format!("{:width$} ｜ {}", phone, friendly_name, width = max_phone_length)
                     } else {
                         phone.to_string()
                     };
@@ -307,5 +283,34 @@ impl View for PhoneInputView {
             let list = List::new(items);
             frame.render_widget(list, layout[5]);
         }
+    }
+}
+impl ModalResponder for PhoneInputView {
+    type Response<'r> = String;
+
+    async fn handle_modal_response<'r>(
+        &mut self,
+        modal_id: String,
+        response: Self::Response<'r>,
+        metadata: ModalMetadata
+    ) -> Option<KeyResponse> {
+        if modal_id != "edit_friendly_name" { return None; }
+        let phone_number = metadata.as_phone()?.trim();
+
+        // TODO: Proper error handling for HTTP result!
+        let http_client = self.http_client.clone();
+        let cloned_phone = phone_number.to_string();
+        let cloned_name = response.clone();
+        tokio::spawn(async move {
+            let _ = http_client.set_friendly_name(&cloned_phone, Some(cloned_name)).await;
+        });
+
+        // Update local cache
+        if let Some(contact) = self.recent_contacts.iter_mut()
+            .find(|(p, _)| p == phone_number) {
+            contact.1 = Some(response);
+        }
+
+        None
     }
 }

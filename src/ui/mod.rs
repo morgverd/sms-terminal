@@ -10,7 +10,7 @@ use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use crate::error::AppResult;
 use crate::theme::Theme;
-use crate::types::KeyResponse;
+use crate::types::{KeyResponse, ModalMetadata};
 
 pub trait View {
     type Context<'ctx>;
@@ -20,7 +20,19 @@ pub trait View {
     fn render<'ctx>(&mut self, frame: &mut Frame, theme: &Theme, ctx: Self::Context<'ctx>);
 }
 
-/// Helper function to create a centered rectangle
+pub trait ModalResponder {
+    type Response<'r>;
+
+    /// Handle a modal response with its associated metadata.
+    /// Returns a KeyResponse if the app state should change.
+    async fn handle_modal_response<'r>(
+        &mut self,
+        modal_id: String,
+        value: Self::Response<'r>,
+        metadata: ModalMetadata
+    ) -> Option<KeyResponse>;
+}
+
 pub fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
     let popup_layout = Layout::vertical([
         Constraint::Percentage((100 - percent_y) / 2),

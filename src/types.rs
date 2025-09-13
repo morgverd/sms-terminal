@@ -103,25 +103,61 @@ impl Display for AppState {
         }
     }
 }
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ModalMetadata {
+    PhoneNumber(String),
+    None
+}
+impl ModalMetadata {
+    pub fn phone(number: impl Into<String>) -> Self {
+        Self::PhoneNumber(number.into())
+    }
+
+    pub fn as_phone(&self) -> Option<&str> {
+        match self {
+            Self::PhoneNumber(phone) => Some(phone),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Modal {
     Confirmation {
         dialog: crate::ui::dialog::ConfirmationDialog,
         id: String,
+        metadata: ModalMetadata
     },
     TextInput {
         dialog: crate::ui::dialog::TextInputDialog,
         id: String,
+        metadata: ModalMetadata
     }
 }
-impl<T: Into<String>> From<(T, crate::ui::dialog::ConfirmationDialog)> for Modal {
-    fn from((id, dialog): (T, crate::ui::dialog::ConfirmationDialog)) -> Self {
-        Self::Confirmation { id: id.into(), dialog }
+impl Modal {
+    pub fn confirmation(id: impl Into<String>, dialog: crate::ui::dialog::ConfirmationDialog) -> Self {
+        Self::Confirmation {
+            id: id.into(),
+            dialog,
+            metadata: ModalMetadata::None,
+        }
     }
-}
-impl<T: Into<String>> From<(T, crate::ui::dialog::TextInputDialog)> for Modal {
-    fn from((id, dialog): (T, crate::ui::dialog::TextInputDialog)) -> Self {
-        Self::TextInput { id: id.into(), dialog }
+
+    pub fn text_input(id: impl Into<String>, dialog: crate::ui::dialog::TextInputDialog) -> Self {
+        Self::TextInput {
+            id: id.into(),
+            dialog,
+            metadata: ModalMetadata::None,
+        }
+    }
+
+    pub fn with_metadata(mut self, metadata: ModalMetadata) -> Self {
+        match &mut self {
+            Modal::Confirmation { metadata: m, .. } => *m = metadata,
+            Modal::TextInput { metadata: m, .. } => *m = metadata,
+        }
+        self
     }
 }
 
