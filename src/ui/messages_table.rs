@@ -39,7 +39,7 @@ pub struct MessagesTableView {
     total_messages: usize
 }
 impl MessagesTableView {
-    pub fn new(http_client: Arc<HttpClient>) -> Self {
+    pub fn with_http(http_client: Arc<HttpClient>) -> Self {
         Self {
             http_client,
             state: TableState::default(),

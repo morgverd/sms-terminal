@@ -52,8 +52,8 @@ impl App {
             app_state: AppState::InputPhone,
             key_debouncer: KeyDebouncer::new(DEBOUNCE_DURATION),
             theme_manager: ThemeManager::with_preset(config.theme),
-            phone_input_view: PhoneInputView::new(),
-            messages_view: MessagesTableView::new(client.http_arc()),
+            phone_input_view: PhoneInputView::with_http(client.http_arc()),
+            messages_view: MessagesTableView::with_http(client.http_arc()),
             sms_input_view: SmsInputView::new(),
             error_view: ErrorView::new(),
             notification_view: NotificationView::new(),
@@ -109,6 +109,7 @@ impl App {
 
     async fn transition_state(&mut self, new_state: AppState) -> AppResult<()> {
         match &new_state {
+            AppState::InputPhone => self.phone_input_view.load().await?,
             AppState::ViewMessages { phone_number, reversed } => self.messages_view.load(phone_number, *reversed).await?,
             AppState::ComposeSms { .. } => self.sms_input_view.load(),
             _ => { }
@@ -222,12 +223,18 @@ impl App {
                     // Only add the message if we're viewing messages for the same phone number.
                     let msg = SmsMessage::from(&sms_message);
                     let mut show_notification = true;
-                    if let AppState::ViewMessages { phone_number, .. } = &self.app_state {
-                        if phone_number == sms_message.phone_number.as_str() {
+                    match &self.app_state {
+                        AppState::ViewMessages { phone_number, .. } if phone_number == sms_message.phone_number.as_str() => {
                             self.messages_view.add_live_message(msg.clone());
                             show_notification = false;
                         }
+                        _ => { }
                     }
+
+                    // Push to phone list view always so it maintains order.
+                    self.phone_input_view.push_new_number(
+                        sms_message.phone_number.clone()
+                    );
 
                     // Show a notification for incoming SMS messages.
                     // Use the SMSMessage variant for content as it's sanitized.

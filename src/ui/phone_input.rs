@@ -1,37 +1,61 @@
+use std::sync::Arc;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::{Alignment, Constraint, Layout};
 use ratatui::style::{Color, Style};
 use ratatui::widgets::{Block, BorderType, Clear, List, ListItem, Paragraph};
 use ratatui::Frame;
-
+use sms_client::error::ClientError;
+use sms_client::http::HttpClient;
+use sms_client::http::types::HttpPaginationOptions;
+use crate::error::AppResult;
 use crate::theme::Theme;
 use crate::types::{AppState, KeyResponse};
 use super::centered_rect;
 
 pub struct PhoneInputView {
+    http_client: Arc<HttpClient>,
     recent_contacts: Vec<(String, String)>, // (phone, name)
     selected_contact: Option<usize>,
-    input_buffer: String
+    input_buffer: String,
+    max_contacts: usize
 }
 impl PhoneInputView {
-    pub fn new() -> Self {
+    pub fn with_http(http_client: Arc<HttpClient>) -> Self {
 
         // TODO: Fetch the latest contacts from client!
-        let recent_contacts = vec![
-            ("+447851124604".to_string(), "Morgan".to_string()),
-            ("+447425905338".to_string(), "Aaron".to_string()),
-            ("2732".to_string(), "ASDA Mobile".to_string())
-        ];
+        let recent_contacts = vec![];
         Self {
+            http_client,
             recent_contacts,
             selected_contact: None,
-            input_buffer: String::new()
+            input_buffer: String::new(),
+            max_contacts: 10
         }
     }
 
-    /// TODO: Websocket integration!
-    pub fn update_recent_contacts(&mut self, contacts: Vec<(String, String)>) {
-        self.recent_contacts = contacts;
+    pub fn push_new_number(&mut self, phone_number: String) {
+        if let Some(pos) = self.recent_contacts.iter().position(|(key, _)| *key == phone_number) {
+            // If found, move to the front.
+            let item = self.recent_contacts.remove(pos);
+            self.recent_contacts.insert(0, item);
+        } else {
+            // If not found, insert at front.
+            self.recent_contacts.insert(0, (phone_number.to_string(), "Unknown!".to_string()));
+
+            if self.recent_contacts.len() > self.max_contacts {
+                self.recent_contacts.truncate(self.max_contacts);
+            }
+        }
+    }
+
+    pub async fn load(&mut self) -> AppResult<()> {
+        let pagination = HttpPaginationOptions::default().with_limit(self.max_contacts as u64);
+        self.recent_contacts = self.http_client.get_latest_numbers(Some(pagination))
+            .await
+            .map_err(|e| ClientError::from(e))?
+            .iter()
+            .map(|phone_number| (phone_number.clone(), "Unknown".to_string()))
+            .collect();
 
         // Reset selection if OOB
         if let Some(selected) = self.selected_contact {
@@ -39,6 +63,7 @@ impl PhoneInputView {
                 self.selected_contact = None;
             }
         }
+        Ok(())
     }
 
     fn select_next(&mut self) {
