@@ -119,9 +119,9 @@ impl PhoneInputView {
     }
 }
 impl View for PhoneInputView {
-    type Context = ();
+    type Context<'ctx> = ();
 
-    async fn load(&mut self, _ctx: Self::Context) -> AppResult<()> {
+    async fn load<'ctx>(&mut self, _ctx: Self::Context<'ctx>) -> AppResult<()> {
         if !self.recent_contacts.is_empty() {
             return Ok(());
         }
@@ -143,7 +143,7 @@ impl View for PhoneInputView {
         Ok(())
     }
 
-    async fn handle_key(&mut self, key: KeyEvent, _ctx: Self::Context) -> Option<KeyResponse> {
+    async fn handle_key<'ctx>(&mut self, key: KeyEvent, _ctx: Self::Context<'ctx>) -> Option<KeyResponse> {
         match key.code {
             KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 return Some(KeyResponse::Quit);
@@ -179,7 +179,7 @@ impl View for PhoneInputView {
                     self.input_buffer.clear();
 
                     return Some(KeyResponse::SetAppState(
-                        AppState::view_messages(phone_number)
+                        AppState::view_messages(&*phone_number)
                     ));
                 }
             },
@@ -205,7 +205,7 @@ impl View for PhoneInputView {
         None
     }
 
-    fn render(&mut self, frame: &mut Frame, theme: &Theme, _ctx: Self::Context) {
+    fn render<'ctx>(&mut self, frame: &mut Frame, theme: &Theme, _ctx: Self::Context<'ctx>) {
         let area = centered_rect(50, 35, frame.area());
         frame.render_widget(Clear, area);
 

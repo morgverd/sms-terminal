@@ -15,13 +15,13 @@ impl ErrorView {
     }
 }
 impl View for ErrorView {
-    type Context = (String, bool);
+    type Context<'ctx> = (&'ctx String, bool);
 
-    async fn load(&mut self, _ctx: Self::Context) -> AppResult<()> {
+    async fn load<'ctx>(&mut self, _ctx: Self::Context<'ctx>) -> AppResult<()> {
         Ok(())
     }
 
-    async fn handle_key(&mut self, key: KeyEvent, ctx: Self::Context) -> Option<KeyResponse> {
+    async fn handle_key<'ctx>(&mut self, key: KeyEvent, ctx: Self::Context<'ctx>) -> Option<KeyResponse> {
         match key.code {
             KeyCode::Esc if ctx.1 => {
                 Some(KeyResponse::SetAppState(AppState::InputPhone))
@@ -33,7 +33,7 @@ impl View for ErrorView {
         }
     }
 
-    fn render(&mut self, frame: &mut Frame, theme: &Theme, ctx: Self::Context) {
+    fn render<'ctx>(&mut self, frame: &mut Frame, theme: &Theme, ctx: Self::Context<'ctx>) {
         let area = centered_rect(60, 25, frame.area());
         frame.render_widget(Clear, area);
 
@@ -54,7 +54,7 @@ impl View for ErrorView {
         ]).split(inner);
 
         // Error message with proper styling
-        let error_text = Paragraph::new(ctx.0)
+        let error_text = Paragraph::new(ctx.0.to_string())
             .style(theme.error_style())
             .wrap(Wrap { trim: true })
             .alignment(Alignment::Center);

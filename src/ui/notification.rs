@@ -293,13 +293,13 @@ impl NotificationView {
     }
 }
 impl View for NotificationView {
-    type Context = ();
+    type Context<'ctx> = ();
 
-    async fn load(&mut self, _ctx: Self::Context) -> AppResult<()> {
+    async fn load<'ctx>(&mut self, _ctx: Self::Context<'ctx>) -> AppResult<()> {
         Ok(())
     }
 
-    async fn handle_key(&mut self, key: KeyEvent, _ctx: Self::Context) -> Option<KeyResponse> {
+    async fn handle_key<'ctx>(&mut self, key: KeyEvent, _ctx: Self::Context<'ctx>) -> Option<KeyResponse> {
         match key.code {
             KeyCode::F(1) => {
                 self.dismiss_oldest();
@@ -313,7 +313,7 @@ impl View for NotificationView {
                 {
                     self.dismiss_all();
 
-                    let state = AppState::view_messages(phone_number);
+                    let state = AppState::view_messages(&*phone_number);
                     return Some(KeyResponse::SetAppState(state));
                 }
             },
@@ -323,7 +323,7 @@ impl View for NotificationView {
         None
     }
 
-    fn render(&mut self, frame: &mut Frame, theme: &Theme, _ctx: Self::Context) {
+    fn render<'ctx>(&mut self, frame: &mut Frame, theme: &Theme, _ctx: Self::Context<'ctx>) {
 
         // TODO: Should be calling this way less. No need to enforce expiry every frame.
         self.notifications.retain(|notification| !notification.is_expired(self.display_duration));

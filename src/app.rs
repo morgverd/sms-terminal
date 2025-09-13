@@ -113,8 +113,8 @@ impl App {
     async fn transition_state(&mut self, new_state: AppState) -> bool {
         let result = match &new_state {
             AppState::InputPhone => self.phone_input_view.load(()).await,
-            AppState::ViewMessages { phone_number, reversed } => self.messages_view.load((phone_number.into(), *reversed)).await,
-            AppState::ComposeSms { phone_number } => self.sms_input_view.load(phone_number.into()).await,
+            AppState::ViewMessages { phone_number, reversed } => self.messages_view.load((phone_number, *reversed)).await,
+            AppState::ComposeSms { phone_number } => self.sms_input_view.load(phone_number).await,
             _ => Ok(())
         };
 
@@ -212,9 +212,9 @@ impl App {
         // View handlers
         match &self.app_state {
             AppState::InputPhone => self.phone_input_view.handle_key(key, ()).await,
-            AppState::ViewMessages { phone_number, reversed } => self.messages_view.handle_key(key, (phone_number.clone(), *reversed)).await,
-            AppState::ComposeSms { phone_number } => self.sms_input_view.handle_key(key, phone_number.into()).await,
-            AppState::Error { message, dismissible } => self.error_view.handle_key(key, (message.into(), *dismissible)).await
+            AppState::ViewMessages { phone_number, reversed } => self.messages_view.handle_key(key, (phone_number, *reversed)).await,
+            AppState::ComposeSms { phone_number } => self.sms_input_view.handle_key(key, phone_number).await,
+            AppState::Error { message, dismissible } => self.error_view.handle_key(key, (message, *dismissible)).await
         }
     }
 
@@ -224,9 +224,9 @@ impl App {
         // Render main application view
         match &self.app_state {
             AppState::InputPhone => self.phone_input_view.render(frame, theme, ()),
-            AppState::ViewMessages { phone_number, reversed } => self.messages_view.render(frame, theme, (phone_number.into(), *reversed)),
-            AppState::ComposeSms { phone_number } => self.sms_input_view.render(frame, theme, phone_number.into()),
-            AppState::Error { message, dismissible } => self.error_view.render(frame, theme, (message.into(), *dismissible))
+            AppState::ViewMessages { phone_number, reversed } => self.messages_view.render(frame, theme, (phone_number, *reversed)),
+            AppState::ComposeSms { phone_number } => self.sms_input_view.render(frame, theme, phone_number),
+            AppState::Error { message, dismissible } => self.error_view.render(frame, theme, (message, *dismissible))
         }
 
         // Render modal on top of main view

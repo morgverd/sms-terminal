@@ -110,16 +110,16 @@ impl SmsInputView {
     }
 }
 impl View for SmsInputView {
-    type Context = String;
+    type Context<'ctx> = &'ctx String;
 
-    async fn load(&mut self, _ctx: Self::Context) -> AppResult<()> {
+    async fn load<'ctx>(&mut self, _ctx: Self::Context<'ctx>) -> AppResult<()> {
         self.cursor_position = 0;
         self.is_sending = false;
         self.sms_text_buffer.clear();
         Ok(())
     }
 
-    async fn handle_key(&mut self, key: KeyEvent, ctx: Self::Context) -> Option<KeyResponse> {
+    async fn handle_key<'ctx>(&mut self, key: KeyEvent, ctx: Self::Context<'ctx>) -> Option<KeyResponse> {
         // Ignore all keyboard input while sending the message
         if self.is_sending {
             return None;
@@ -127,7 +127,7 @@ impl View for SmsInputView {
 
         match key.code {
             KeyCode::Esc => {
-                let state = AppState::view_messages(ctx.to_string());
+                let state = AppState::view_messages(ctx);
                 self.sms_text_buffer.clear();
                 return Some(KeyResponse::SetAppState(state));
             },
@@ -181,7 +181,7 @@ impl View for SmsInputView {
         None
     }
 
-    fn render(&mut self, frame: &mut Frame, theme: &Theme, ctx: Self::Context) {
+    fn render<'ctx>(&mut self, frame: &mut Frame, theme: &Theme, ctx: Self::Context<'ctx>) {
         let area = centered_rect(70, 60, frame.area());
         frame.render_widget(Clear, area);
 

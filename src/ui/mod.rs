@@ -13,11 +13,11 @@ use crate::theme::Theme;
 use crate::types::KeyResponse;
 
 pub trait View {
-    type Context: Default;
+    type Context<'ctx>;
 
-    async fn load(&mut self, ctx: Self::Context) -> AppResult<()>;
-    async fn handle_key(&mut self, key: KeyEvent, ctx: Self::Context) -> Option<KeyResponse>;
-    fn render(&mut self, frame: &mut Frame, theme: &Theme, ctx: Self::Context);
+    async fn load<'ctx>(&mut self, ctx: Self::Context<'ctx>) -> AppResult<()>;
+    async fn handle_key<'ctx>(&mut self, key: KeyEvent, ctx: Self::Context<'ctx>) -> Option<KeyResponse>;
+    fn render<'ctx>(&mut self, frame: &mut Frame, theme: &Theme, ctx: Self::Context<'ctx>);
 }
 
 /// Helper function to create a centered rectangle

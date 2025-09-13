@@ -331,21 +331,21 @@ impl MessagesTableView {
     }
 }
 impl View for MessagesTableView {
-    type Context = (String, bool);
+    type Context<'ctx> = (&'ctx String, bool);
 
-    async fn load(&mut self, ctx: Self::Context) -> AppResult<()> {
+    async fn load<'ctx>(&mut self, ctx: Self::Context<'ctx>) -> AppResult<()> {
         self.reversed = ctx.1;
-        self.reload(ctx.0.as_str()).await
+        self.reload(ctx.0).await
     }
 
-    async fn handle_key(&mut self, key: KeyEvent, ctx: Self::Context) -> Option<KeyResponse> {
+    async fn handle_key<'ctx>(&mut self, key: KeyEvent, ctx: Self::Context<'ctx>) -> Option<KeyResponse> {
         match key.code {
             KeyCode::Esc => {
                 self.reset();
                 return Some(KeyResponse::SetAppState(AppState::InputPhone));
             },
             KeyCode::Char('c') => {
-                let state = AppState::compose_sms(ctx.0.to_string());
+                let state = AppState::compose_sms(ctx.0);
                 return Some(KeyResponse::SetAppState(state));
             },
             KeyCode::Char('r') if key.modifiers.contains(KeyModifiers::CONTROL) => {
@@ -354,7 +354,7 @@ impl View for MessagesTableView {
                 return Some(KeyResponse::SetAppState(state));
             },
             KeyCode::Char('r') => {
-                match self.reload(ctx.0.as_str()).await {
+                match self.reload(ctx.0).await {
                     Ok(()) => {},
                     Err(e) => {
                         return Some(KeyResponse::SetAppState(AppState::from(e)));
@@ -363,7 +363,7 @@ impl View for MessagesTableView {
             },
             KeyCode::Down => {
                 self.next_row().await;
-                if let Err(e) = self.check_load_more(ctx.0.as_str()).await {
+                if let Err(e) = self.check_load_more(ctx.0).await {
                     return Some(KeyResponse::SetAppState(AppState::from(e)));
                 }
             },
@@ -381,12 +381,12 @@ impl View for MessagesTableView {
 
         None
     }
-    fn render(&mut self, frame: &mut Frame, theme: &Theme, ctx: Self::Context) {
+    fn render<'ctx>(&mut self, frame: &mut Frame, theme: &Theme, ctx: Self::Context<'ctx>) {
         let layout = Layout::vertical([Constraint::Min(5), Constraint::Length(5)]);
         let rects = layout.split(frame.area());
 
         self.render_table(frame, rects[0], theme);
         self.render_scrollbar(frame, rects[0]);
-        self.render_footer(frame, rects[1], ctx.0.as_str(), theme);
+        self.render_footer(frame, rects[1], ctx.0, theme);
     }
 }

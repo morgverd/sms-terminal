@@ -68,12 +68,12 @@ pub enum AppState {
     }
 }
 impl AppState {
-    pub fn view_messages(phone_number: String) -> Self {
-        Self::ViewMessages { phone_number, reversed: false }
+    pub fn view_messages(phone_number: &str) -> Self {
+        Self::ViewMessages { phone_number: phone_number.to_string(), reversed: false }
     }
 
-    pub fn compose_sms(phone_number: String) -> Self {
-        Self::ComposeSms { phone_number }
+    pub fn compose_sms(phone_number: &str) -> Self {
+        Self::ComposeSms { phone_number: phone_number.to_string() }
     }
 }
 impl From<AppError> for AppState {
