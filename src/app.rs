@@ -1,5 +1,5 @@
 use color_eyre::Result;
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
 use ratatui::{DefaultTerminal, Frame};
 use std::time::Duration;
 use ratatui::style::Color;
@@ -131,15 +131,15 @@ impl App {
             return None;
         }
 
-        // Global theme switching with Shift+T. This was such a pain to make
+        // Global theme switching with F10. This was such a pain to make
         // but a coworker said it looked cool, so I stuck with it throughout.
         // This MUST remain uppercase T, since shift modifies it before here!
-        if key.code == KeyCode::Char('T') && key.modifiers.contains(KeyModifiers::SHIFT) {
-            if key.modifiers.contains(KeyModifiers::ALT) {
-                self.theme_manager.toggle_modify_background();
-            } else {
-                self.theme_manager.next();
-            }
+        if key.code == KeyCode::F(10) {
+            self.theme_manager.next();
+            return None;
+        }
+        if key.code == KeyCode::F(11) {
+            self.theme_manager.toggle_modify_background();
             return None;
         }
 

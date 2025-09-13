@@ -10,33 +10,34 @@ pub enum PresetTheme {
     Zinc,
     Indigo,
     Red,
+    Amber,
     Pink
 }
-
 impl PresetTheme {
     pub fn palette(&self) -> tailwind::Palette {
         match self {
+            PresetTheme::Emerald => tailwind::EMERALD,
             PresetTheme::Blue => tailwind::BLUE,
             PresetTheme::Zinc => tailwind::ZINC,
-            PresetTheme::Emerald => tailwind::EMERALD,
             PresetTheme::Indigo => tailwind::INDIGO,
             PresetTheme::Red => tailwind::RED,
+            PresetTheme::Amber => tailwind::AMBER,
             PresetTheme::Pink => tailwind::PINK
         }
     }
 
     pub fn variants() -> &'static [PresetTheme] {
         &[
+            PresetTheme::Emerald,
             PresetTheme::Blue,
             PresetTheme::Zinc,
-            PresetTheme::Emerald,
             PresetTheme::Indigo,
             PresetTheme::Red,
+            PresetTheme::Amber,
             PresetTheme::Pink
         ]
     }
 }
-
 impl Default for PresetTheme {
     fn default() -> Self {
         PresetTheme::Emerald
