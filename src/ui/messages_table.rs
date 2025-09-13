@@ -89,15 +89,12 @@ impl MessagesTableView {
                 match self.reload(phone_number).await {
                     Ok(()) => {},
                     Err(e) => {
-                        let state = AppState::Error { message: e.to_string(), dismissible: true };
-                        return Some(KeyResponse::SetAppState(state));
+                        return Some(KeyResponse::SetAppState(AppState::from(e)));
                     }
                 }
             },
             KeyCode::Down => {
                 self.next_row().await;
-
-                // Check if we need to load more after moving
                 if let Err(e) = self.check_load_more(phone_number).await {
                     return Some(KeyResponse::SetAppState(AppState::from(e)));
                 }
@@ -139,13 +136,9 @@ impl MessagesTableView {
     }
 
     async fn load_messages(&mut self, phone_number: &str) -> AppResult<()> {
-        if phone_number.is_empty() {
-            return Err(AppError::NoPhoneNumber);
-        }
         if self.is_loading {
             return Ok(());
         }
-
         let pagination = HttpPaginationOptions::default()
             .with_limit(MESSAGES_PER_PAGE)
             .with_offset(self.current_offset)

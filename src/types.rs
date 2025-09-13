@@ -74,10 +74,6 @@ impl AppState {
     pub fn compose_sms(phone_number: String) -> Self {
         Self::ComposeSms { phone_number }
     }
-    
-    pub fn error(message: String) -> Self {
-        Self::Error { message, dismissible: false }
-    }
 }
 impl From<AppError> for AppState {
     fn from(error: AppError) -> Self {

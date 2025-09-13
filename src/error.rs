@@ -4,8 +4,7 @@ use sms_client::error::ClientError;
 pub enum AppError {
     HttpError(String),
     ConfigError(String),
-    SmsError(String),
-    NoPhoneNumber,
+    SmsError(String)
 }
 impl std::error::Error for AppError {}
 impl std::fmt::Display for AppError {
@@ -13,7 +12,6 @@ impl std::fmt::Display for AppError {
         match self {
             AppError::HttpError(e) => write!(f, "HTTP Error: {}", e),
             AppError::ConfigError(e) => write!(f, "Config Error: {}", e),
-            AppError::NoPhoneNumber => write!(f, "No phone number provided"),
             AppError::SmsError(e) => write!(f, "SMS Error: {}", e)
         }
     }

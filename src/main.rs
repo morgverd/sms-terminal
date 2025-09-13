@@ -168,14 +168,13 @@ impl TerminalConfig {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    color_eyre::install()?;
-
     crossterm::execute!(
         std::io::stdout(),
         crossterm::terminal::SetTitle(format!("SMS Terminal - v{}", VERSION)),
         crossterm::terminal::SetSize(160, 50)
     )?;
 
+    color_eyre::install()?;
     let config = TerminalConfig::parse();
     let app = App::new(config)?;
 

@@ -127,7 +127,11 @@ impl App {
         // but a coworker said it looked cool, so I stuck with it throughout.
         // This MUST remain uppercase T, since shift modifies it before here!
         if key.code == KeyCode::Char('T') && key.modifiers.contains(KeyModifiers::SHIFT) {
-            self.theme_manager.next();
+            if key.modifiers.contains(KeyModifiers::ALT) {
+                self.theme_manager.toggle_modify_background();
+            } else {
+                self.theme_manager.next();
+            }
             return None;
         }
 
