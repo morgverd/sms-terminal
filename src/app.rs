@@ -84,10 +84,8 @@ impl App {
             self.notification_view.add_notification(notification);
         };
 
-        // Transition into starting state and get SMS HTTP client
-        if !self.transition_state(AppState::InputPhone).await {
-            return Err(AppError::ViewError("Could not transition into initial view!").into());
-        }
+        // Transition into starting state (which may be an error!)
+        self.transition_state(AppState::InputPhone).await;
 
         loop {
             terminal.draw(|frame| self.render(frame))?;
@@ -134,7 +132,7 @@ impl App {
         self.notification_view.render(frame, theme, ());
     }
 
-    async fn transition_state(&mut self, new_state: AppState) -> bool {
+    async fn transition_state(&mut self, new_state: AppState) {
         let result = match &new_state {
             AppState::InputPhone => self.phone_input_view.load(()).await,
             AppState::ViewMessages { phone_number, reversed } => self.messages_view.load((phone_number, *reversed)).await,
@@ -144,10 +142,10 @@ impl App {
 
         // Get the actual state by first checking if any of
         // the view transition results returned an error.
-        let (actual_state, is_successful) = if let Err(e) = result {
-            (AppState::from(e), false)
+        let actual_state = if let Err(e) = result {
+            AppState::from(e)
         } else {
-            (new_state, true)
+            new_state
         };
 
         let _ = crossterm::execute!(
@@ -157,15 +155,11 @@ impl App {
 
         self.app_state = actual_state;
         self.key_debouncer.reset();
-
-        is_successful
     }
 
     async fn handle_key_response(&mut self, response: KeyResponse) -> bool {
         match response {
-            KeyResponse::SetAppState(state) => {
-                let _ = self.transition_state(state).await;
-            },
+            KeyResponse::SetAppState(state) => self.transition_state(state).await,
             KeyResponse::ShowModal(modal) => {
                 self.current_modal = Some(modal);
             },
@@ -386,7 +380,18 @@ impl App {
                 LiveEvent::SendFailure(_) => unimplemented!("Oops!"),
                 LiveEvent::ShowNotification(notification) => self.notification_view.add_notification(notification),
                 LiveEvent::ShowError { message, dismissible } => {
-                    let _ = self.transition_state(AppState::Error { message, dismissible });
+
+                    // If another error is being displayed, only overwrite it if
+                    // that one is dismissable but this one isn't. Otherwise, ignore.
+                    let allowed = match &self.app_state {
+                        AppState::Error { dismissible: existing_dismissable, .. } => {
+                            *existing_dismissable || !dismissible
+                        },
+                        _ => true
+                    };
+                    if allowed {
+                        self.transition_state(AppState::Error { message, dismissible }).await;
+                    }
                 }
             }
         }
