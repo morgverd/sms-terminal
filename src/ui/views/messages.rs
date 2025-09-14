@@ -379,7 +379,7 @@ impl ViewBase for MessagesView {
         };
 
         // If a view state is retuned, make it into a state change.
-        view_state.map(|state| AppAction::SetAppState {
+        view_state.map(|state| AppAction::SetViewState {
             state,
             dismiss_modal: false
         })

@@ -298,7 +298,7 @@ impl ViewBase for NotificationView {
                     .and_then(|n| n.get_phone_number())
                 {
                     self.dismiss_all();
-                    return Some(AppAction::SetAppState {
+                    return Some(AppAction::SetViewState {
                         state: ViewState::view_messages(&*phone_number),
                         dismiss_modal: false
                     });

@@ -25,7 +25,7 @@ impl ViewBase for ErrorView {
     async fn handle_key<'ctx>(&mut self, key: KeyEvent, ctx: Self::Context<'ctx>) -> Option<AppAction> {
         match key.code {
             KeyCode::Esc if ctx.1 => {
-                Some(AppAction::SetAppState {
+                Some(AppAction::SetViewState {
                     state: ViewState::Phonebook,
                     dismiss_modal: false
                 })

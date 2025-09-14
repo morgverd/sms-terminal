@@ -134,7 +134,7 @@ impl ViewBase for ComposeView {
         match key.code {
             KeyCode::Esc => {
                 self.sms_text_buffer.clear();
-                return Some(AppAction::SetAppState {
+                return Some(AppAction::SetViewState {
                     state: ViewState::view_messages(ctx),
                     dismiss_modal: false
                 });
@@ -291,7 +291,7 @@ impl ModalResponderComponent for ComposeView {
             };
 
             let _ = sender.send(AppAction::ShowNotification(notification));
-            let _ = sender.send(AppAction::SetAppState {
+            let _ = sender.send(AppAction::SetViewState {
                 state: ViewState::view_messages(&phone),
                 // Ensure the loading modal is dismissed on this state change.
                 dismiss_modal: true

@@ -12,7 +12,7 @@ use crate::ui::notification::NotificationType;
 
 #[derive(Debug, PartialEq)]
 pub enum AppAction {
-    SetAppState {
+    SetViewState {
         state: ViewState,
         dismiss_modal: bool
     },

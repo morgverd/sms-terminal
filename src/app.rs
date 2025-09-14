@@ -156,7 +156,7 @@ impl App {
 
     async fn handle_app_action(&mut self, response: AppAction) -> bool {
         match response {
-            AppAction::SetAppState { state, dismiss_modal } => {
+            AppAction::SetViewState { state, dismiss_modal } => {
 
                 // Allow the state change to dismiss the current modal.
                 // This is useful for transitioning out of a loading state.
