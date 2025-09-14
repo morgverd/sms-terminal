@@ -186,8 +186,7 @@ impl App {
                 if allowed {
                     self.transition_state(AppState::Error { message, dismissible }).await;
                 }
-            },
-            AppAction::ShowLoadingModal(message) => self.current_modal = Some(Modal::create_loading(message))
+            }
         };
 
         false

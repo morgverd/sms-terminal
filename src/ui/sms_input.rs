@@ -264,7 +264,6 @@ impl ModalResponder for SmsInputView {
         let http = self.context.0.clone();
         let sender = self.context.1.clone();
 
-        let _ = self.context.1.send(AppAction::ShowLoadingModal("Sending message..."));
         tokio::spawn(async move {
             let message = HttpOutgoingSmsMessage::simple_message(phone.clone(), content.clone());
 
@@ -294,6 +293,7 @@ impl ModalResponder for SmsInputView {
             let _ = sender.send(AppAction::SetAppState(AppState::view_messages(&phone)));
         });
 
-        None
+        let modal = Modal::create_loading("Sending message!...");
+        Some(AppAction::ShowModal(modal))
     }
 }

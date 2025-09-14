@@ -190,7 +190,6 @@ pub enum AppAction {
         message: String,
         dismissible: bool
     },
-    ShowLoadingModal(&'static str),
     Exit,
 
     /// Unimplemented, but left to hopefully spur me into finishing
