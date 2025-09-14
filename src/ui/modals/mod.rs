@@ -3,34 +3,39 @@ use ratatui::Frame;
 use ratatui::layout::{Alignment, Rect};
 use ratatui::prelude::{Line, Modifier, Span, Style};
 use ratatui::widgets::{Block, BorderType, Clear, Paragraph};
+
 use crate::theme::Theme;
+use crate::modals::ModalResponse;
 use crate::ui::centered_rect;
 
 pub mod confirmation;
 pub mod text_input;
 pub mod loading;
 
-pub trait ModalComponent {
+pub trait ModalComponent: std::fmt::Debug + Send + Sync {
 
-    fn handle_key(&mut self, key: KeyEvent) -> Option<bool>;
+    fn handle_key(&mut self, key: KeyEvent) -> Option<ModalResponse>;
     fn render(&mut self, frame: &mut Frame, theme: &Theme);
-    fn get_input(&self) -> Option<&str> {
-        None
-    }
 
     /// Should views from AppState still be rendered whilst Modal is active.
     fn should_render_views(&self) -> bool {
         true
     }
+}
 
-    fn render_base(
+pub struct ModalUtils;
+impl ModalUtils {
+
+    pub fn render_base<F>(
         frame: &mut Frame,
         title: &str,
-        content: impl FnOnce(&mut Frame, Rect, &Theme),
+        content: F,
         theme: &Theme,
         width: u16,
         height: u16,
-    ) {
+    ) where
+        F: FnOnce(&mut Frame, Rect, &Theme)
+    {
         let area = centered_rect(width, height, frame.area());
         frame.render_widget(Clear, area);
 
@@ -47,7 +52,12 @@ pub trait ModalComponent {
         content(frame, inner, theme);
     }
 
-    fn render_buttons(&self, frame: &mut Frame, area: Rect, buttons: &[ModalButtonComponent], selected_index: usize) {
+    fn render_buttons(
+        frame: &mut Frame,
+        area: Rect,
+        buttons: &[ModalButtonComponent],
+        selected_index: usize
+    ) {
         let mut button_spans = Vec::new();
 
         button_spans.push(Span::raw("    "));

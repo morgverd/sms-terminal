@@ -12,11 +12,11 @@ use tokio::sync::mpsc;
 
 use crate::TerminalConfig;
 use crate::error::{AppError, AppResult};
+use crate::modals::AppModal;
 use crate::theme::ThemeManager;
-use crate::types::{ViewState, KeyDebouncer, KeyPress, AppAction, SmsMessage, DEBOUNCE_DURATION, ModalResponse, AppModal, ModalMetadata};
+use crate::types::{ViewState, KeyDebouncer, KeyPress, AppAction, SmsMessage, DEBOUNCE_DURATION};
 use crate::ui::{ModalResponderComponent, ViewBase};
 use crate::ui::notification::{NotificationType, NotificationView};
-use crate::ui::modals::ModalComponent;
 use crate::ui::views::error::ErrorView;
 use crate::ui::views::messages::MessagesView;
 use crate::ui::views::phonebook::PhonebookView;
@@ -29,9 +29,9 @@ pub struct App {
     current_modal: Option<AppModal>,
     key_debouncer: KeyDebouncer,
     theme_manager: ThemeManager,
-    phone_input_view: PhonebookView,
+    phonebook_view: PhonebookView,
     messages_view: MessagesView,
-    sms_input_view: ComposeView,
+    compose_view: ComposeView,
     error_view: ErrorView,
     notification_view: NotificationView,
     message_receiver: mpsc::UnboundedReceiver<AppAction>,
@@ -53,9 +53,9 @@ impl App {
             current_modal: None,
             key_debouncer: KeyDebouncer::new(DEBOUNCE_DURATION),
             theme_manager: ThemeManager::with_preset(config.theme),
-            phone_input_view: PhonebookView::with_context(context.clone()),
+            phonebook_view: PhonebookView::with_context(context.clone()),
             messages_view: MessagesView::with_context(context.clone()),
-            sms_input_view: ComposeView::with_context(context),
+            compose_view: ComposeView::with_context(context),
             error_view: ErrorView::new(),
             notification_view: NotificationView::new(),
             message_receiver: rx,
@@ -113,20 +113,16 @@ impl App {
         // Render main application view
         if self.render_views {
             match &self.view_state {
-                ViewState::Phonebook => self.phone_input_view.render(frame, theme, ()),
+                ViewState::Phonebook => self.phonebook_view.render(frame, theme, ()),
                 ViewState::Messages { phone_number, reversed } => self.messages_view.render(frame, theme, (phone_number, *reversed)),
-                ViewState::Compose { phone_number } => self.sms_input_view.render(frame, theme, phone_number),
+                ViewState::Compose { phone_number } => self.compose_view.render(frame, theme, phone_number),
                 ViewState::Error { message, dismissible } => self.error_view.render(frame, theme, (message, *dismissible))
             }
         }
 
         // Render modal on top of main view
         if let Some(modal) = &mut self.current_modal {
-            match modal {
-                AppModal::Confirmation { ui, .. } => ui.render(frame, theme),
-                AppModal::TextInput { ui, .. } => ui.render(frame, theme),
-                AppModal::Loading { ui, .. } => ui.render(frame, theme)
-            }
+            modal.render(frame, theme);
         }
 
         // Render notifications on top of everything
@@ -135,9 +131,9 @@ impl App {
 
     async fn transition_state(&mut self, new_state: ViewState) {
         let result = match &new_state {
-            ViewState::Phonebook => self.phone_input_view.load(()).await,
+            ViewState::Phonebook => self.phonebook_view.load(()).await,
             ViewState::Messages { phone_number, reversed } => self.messages_view.load((phone_number, *reversed)).await,
-            ViewState::Compose { phone_number } => self.sms_input_view.load(phone_number).await,
+            ViewState::Compose { phone_number } => self.compose_view.load(phone_number).await,
             _ => Ok(())
         };
 
@@ -161,9 +157,11 @@ impl App {
     async fn handle_app_action(&mut self, response: AppAction) -> bool {
         match response {
             AppAction::SetAppState(new_state) => {
-                if matches!(self.current_modal, Some(AppModal::Loading { .. })) {
-                    self.set_modal(None);
-                }
+
+                // TODO: SOLVE THIS!!
+                // if matches!(self.current_modal, Some(AppModal::Loading { .. })) {
+                //     self.set_modal(None);
+                // }
                 self.transition_state(new_state).await
             }
             AppAction::ShowModal(modal) => {
@@ -215,42 +213,24 @@ impl App {
 
         // Handle modal interactions
         if let Some(modal) = &mut self.current_modal {
-            let (modal_response, metadata) = match modal {
-                AppModal::Confirmation { ui, id, metadata } => {
-                    let response = if let Some(confirmed) = ui.handle_key(key) {
-                        Some(ModalResponse::Confirmation {
-                            modal_id: id.clone(),
-                            confirmed,
-                        })
-                    } else {
-                        None
-                    };
-                    (response, metadata.clone())
-                },
-                AppModal::TextInput { ui, id, metadata } => {
-                    let response = if let Some(confirmed) = ui.handle_key(key) {
-                        Some(ModalResponse::TextInput {
-                            modal_id: id.clone(),
-                            value: if confirmed {
-                                ui.get_input().map(|s| s.to_string())
-                            } else {
-                                None
-                            }
-                        })
-                    } else {
-                        None
-                    };
-                    (response, metadata.clone())
-                }
-                AppModal::Loading { .. } => return None
+            let Some(response) = modal.handle_key(key) else {
+                return None;
             };
 
-            return if let Some(response) = modal_response {
-                self.set_modal(None);
-                self.handle_modal_response(response, metadata).await
-            } else {
-                None
+            // Route response to appropriate view based on ID
+            let response = match modal.id.as_str() {
+                "confirm_sms_send" => self.compose_view.handle_modal_response(response, modal.metadata.clone()),
+                "edit_friendly_name" => self.phonebook_view.handle_modal_response(response, modal.metadata.clone()),
+                id => Some(AppAction::ShowError {
+                    message: format!("Got unknown modal response ID {}!", id),
+                    dismissible: true
+                })
             };
+
+            // Clear current modal before submitting response
+            // This also passively handles Dismissed
+            self.set_modal(None);
+            return response;
         }
 
         // Handle notification interactions
@@ -260,41 +240,10 @@ impl App {
 
         // View handlers
         match &self.view_state {
-            ViewState::Phonebook => self.phone_input_view.handle_key(key, ()).await,
+            ViewState::Phonebook => self.phonebook_view.handle_key(key, ()).await,
             ViewState::Messages { phone_number, reversed } => self.messages_view.handle_key(key, (phone_number, *reversed)).await,
-            ViewState::Compose { phone_number } => self.sms_input_view.handle_key(key, phone_number).await,
+            ViewState::Compose { phone_number } => self.compose_view.handle_key(key, phone_number).await,
             ViewState::Error { message, dismissible } => self.error_view.handle_key(key, (message, *dismissible)).await
-        }
-    }
-
-    async fn handle_modal_response(&mut self, response: ModalResponse, metadata: ModalMetadata) -> Option<AppAction> {
-        match response {
-            ModalResponse::Confirmation { modal_id, confirmed } => {
-                if !confirmed {
-                    return None; // User cancelled
-                }
-                match modal_id.as_str() {
-                    "confirm_sms_send" => {
-                        self.sms_input_view.handle_modal_response(
-                            modal_id, confirmed, metadata
-                        ).await
-                    },
-                    _ => None
-                }
-            },
-            ModalResponse::TextInput { modal_id, value } => {
-                let Some(value) = value else {
-                    return None; // User cancelled
-                };
-                match modal_id.as_str() {
-                    "edit_friendly_name" => {
-                        self.phone_input_view.handle_modal_response(
-                            modal_id, value, metadata
-                        ).await
-                    },
-                    _ => None
-                }
-            }
         }
     }
 
@@ -311,7 +260,7 @@ impl App {
         }
 
         // Push to phone list view always so it maintains order.
-        self.phone_input_view.push_new_number(
+        self.phonebook_view.push_new_number(
             sms_message.phone_number.clone()
         ).await?;
 

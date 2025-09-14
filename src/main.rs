@@ -8,6 +8,7 @@ mod error;
 mod types;
 mod ui;
 mod theme;
+mod modals;
 
 use app::App;
 use serde::{Deserialize, Serialize};

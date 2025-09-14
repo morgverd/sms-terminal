@@ -4,7 +4,8 @@ use ratatui::layout::{Alignment, Constraint, Layout};
 use ratatui::widgets::{Paragraph, Wrap};
 
 use crate::theme::Theme;
-use crate::ui::modals::{ModalButtonComponentStyles, ModalComponent, ModalButtonComponent};
+use crate::modals::ModalResponse;
+use crate::ui::modals::{ModalButtonComponentStyles, ModalComponent, ModalButtonComponent, ModalUtils};
 
 /// Confirmation with Yes/No buttons
 #[derive(Debug, Clone, PartialEq)]
@@ -16,36 +17,37 @@ impl ConfirmationModal {
     pub fn new(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
-            selected_yes: false,
+            selected_yes: false
         }
     }
 }
 impl ModalComponent for ConfirmationModal {
 
-    fn handle_key(&mut self, key: KeyEvent) -> Option<bool> {
+    fn handle_key(&mut self, key: KeyEvent) -> Option<ModalResponse> {
         match key.code {
             KeyCode::Left | KeyCode::Right | KeyCode::Tab => {
                 self.selected_yes = !self.selected_yes;
                 None
             }
-            KeyCode::Enter => Some(self.selected_yes),
-            KeyCode::Esc => Some(false),
+            KeyCode::Enter => Some(ModalResponse::Confirmed(self.selected_yes)),
+            KeyCode::Esc => Some(ModalResponse::Dismissed),
             KeyCode::Char('y') | KeyCode::Char('Y') => {
                 self.selected_yes = true;
-                Some(true)
+                Some(ModalResponse::Confirmed(true))
             }
             KeyCode::Char('n') | KeyCode::Char('N') => {
                 self.selected_yes = false;
-                Some(false)
+                Some(ModalResponse::Confirmed(false))
             }
-            _ => None,
+            _ => None
         }
     }
+
     fn render(&mut self, frame: &mut Frame, theme: &Theme) {
         let button_styles = ModalButtonComponentStyles::from_theme(theme);
         let styled_buttons = ModalButtonComponent::create_yes_no_buttons(&button_styles);
 
-        Self::render_base(
+        ModalUtils::render_base(
             frame,
             "Confirm",
             |frame, area, theme| {
@@ -66,7 +68,7 @@ impl ModalComponent for ConfirmationModal {
 
                 // Buttons
                 let selected_index = if self.selected_yes { 0 } else { 1 };
-                self.render_buttons(frame, layout[2], &styled_buttons, selected_index);
+                ModalUtils::render_buttons(frame, layout[2], &styled_buttons, selected_index);
 
                 // Help text
                 let help = Paragraph::new("(←/→) select | (Enter) confirm | (Esc) cancel")
@@ -78,9 +80,5 @@ impl ModalComponent for ConfirmationModal {
             50,
             15,
         );
-    }
-
-    fn get_input(&self) -> Option<&str> {
-        None
     }
 }

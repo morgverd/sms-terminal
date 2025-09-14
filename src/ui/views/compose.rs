@@ -1,3 +1,4 @@
+use std::fs::Metadata;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::{Alignment, Constraint, Layout};
 use ratatui::style::{Modifier, Style};
@@ -11,10 +12,12 @@ use sms_client::types::SmsStoredMessage;
 
 use crate::app::AppContext;
 use crate::error::AppResult;
+use crate::modals::{AppModal, ModalMetadata, ModalResponse};
 use crate::theme::Theme;
-use crate::types::{ViewState, AppAction, ModalMetadata, AppModal};
+use crate::types::{ViewState, AppAction};
 use crate::ui::{centered_rect, ModalResponderComponent, ViewBase};
 use crate::ui::modals::confirmation::ConfirmationModal;
+use crate::ui::modals::loading::LoadingModal;
 use crate::ui::notification::NotificationType;
 
 pub struct ComposeView {
@@ -140,7 +143,7 @@ impl ViewBase for ComposeView {
 
                     // Show a confirmation modal with message send metadata.
                     // This calls handle_modal_response from async loop, which then sends the message.
-                    let modal = AppModal::from(("confirm_sms_send", ConfirmationModal::new(format!("Send SMS to {}?", ctx))))
+                    let modal = AppModal::new("confirm_sms_send", ConfirmationModal::new(format!("Send SMS to {}?", ctx)))
                         .with_metadata(ModalMetadata::SendMessage(ctx.to_owned(), self.sms_text_buffer.clone()));
 
                     return Some(AppAction::ShowModal(modal));
@@ -245,15 +248,12 @@ impl ViewBase for ComposeView {
     }
 }
 impl ModalResponderComponent for ComposeView {
-    type Response<'r> = bool;
 
-    async fn handle_modal_response<'r>(
-        &mut self,
-        modal_id: String,
-        value: Self::Response<'r>,
-        metadata: ModalMetadata
-    ) -> Option<AppAction> {
-        if !value || modal_id != "confirm_sms_send" { return None; }
+    fn handle_modal_response(&mut self, response: ModalResponse, metadata: ModalMetadata) -> Option<AppAction> {
+        match response {
+            ModalResponse::Confirmed(true) => { },
+            _ => return None
+        };
 
         // Ensure it's a SendMessage metadata
         let (phone, content) = match metadata {
@@ -293,6 +293,7 @@ impl ModalResponderComponent for ComposeView {
             let _ = sender.send(AppAction::SetAppState(ViewState::view_messages(&phone)));
         });
 
-        Some(AppAction::ShowModal(AppModal::loading("Sending message...")))
+        let modal = AppModal::new("sms_sending", LoadingModal::new("Sending message..."));
+        Some(AppAction::ShowModal(modal))
     }
 }

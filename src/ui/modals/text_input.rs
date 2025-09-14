@@ -3,9 +3,9 @@ use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Layout};
 use ratatui::prelude::{Line, Modifier, Span, Style};
 use ratatui::widgets::{Block, Paragraph};
-
+use crate::modals::ModalResponse;
 use crate::theme::Theme;
-use crate::ui::modals::{ModalButtonComponentStyles, ModalComponent, ModalButtonComponent};
+use crate::ui::modals::{ModalButtonComponentStyles, ModalComponent, ModalButtonComponent, ModalUtils};
 
 /// Text input with OK/Cancel buttons
 #[derive(Debug, Clone, PartialEq)]
@@ -78,64 +78,57 @@ impl TextInputModal {
 }
 impl ModalComponent for TextInputModal {
 
-    fn handle_key(&mut self, key: KeyEvent) -> Option<bool> {
+    fn handle_key(&mut self, key: KeyEvent) -> Option<ModalResponse> {
         match key.code {
-            KeyCode::Esc => Some(false),
+            KeyCode::Esc => {
+                return Some(ModalResponse::Dismissed)
+            },
             KeyCode::Tab => {
                 self.selected_ok = !self.selected_ok;
-                None
-            }
+            },
             KeyCode::Enter if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                Some(self.selected_ok)
-            }
+                return Some(ModalResponse::TextInput(Some(self.input_buffer.clone())))
+            },
             KeyCode::Enter => {
-                if self.selected_ok && !self.input_buffer.trim().is_empty() {
-                    Some(true)
+                return if self.selected_ok && !self.input_buffer.trim().is_empty() {
+                    Some(ModalResponse::TextInput(Some(self.input_buffer.clone())))
                 } else if !self.selected_ok {
-                    Some(false)
+                    Some(ModalResponse::Dismissed)
                 } else {
                     None
                 }
-            }
+            },
             KeyCode::Left if key.modifiers.contains(KeyModifiers::ALT) => {
                 self.selected_ok = true;
-                None
-            }
+            },
             KeyCode::Right if key.modifiers.contains(KeyModifiers::ALT) => {
                 self.selected_ok = false;
-                None
-            }
+            },
             KeyCode::Left => {
                 self.cursor_position = self.cursor_position.saturating_sub(1);
-                None
-            }
+            },
             KeyCode::Right => {
                 if self.cursor_position < self.input_buffer.len() {
                     self.cursor_position += 1;
                 }
-                None
-            }
+            },
             KeyCode::Home => {
                 self.cursor_position = 0;
-                None
-            }
+            },
             KeyCode::End => {
                 self.cursor_position = self.input_buffer.len();
-                None
-            }
+            },
             KeyCode::Backspace => {
                 if self.cursor_position > 0 {
                     self.input_buffer.remove(self.cursor_position - 1);
                     self.cursor_position -= 1;
                 }
-                None
-            }
+            },
             KeyCode::Delete => {
                 if self.cursor_position < self.input_buffer.len() {
                     self.input_buffer.remove(self.cursor_position);
                 }
-                None
-            }
+            },
             KeyCode::Char(c) => {
                 if let Some(max) = self.max_length {
                     if self.input_buffer.len() >= max {
@@ -144,10 +137,11 @@ impl ModalComponent for TextInputModal {
                 }
                 self.input_buffer.insert(self.cursor_position, c);
                 self.cursor_position += 1;
-                None
             }
-            _ => None,
+            _ => { }
         }
+
+        None
     }
 
     fn render(&mut self, frame: &mut Frame, theme: &Theme) {
@@ -157,7 +151,7 @@ impl ModalComponent for TextInputModal {
         let button_styles = ModalButtonComponentStyles::from_theme(theme);
         let styled_buttons = ModalButtonComponent::create_ok_cancel_buttons(&button_styles);
 
-        Self::render_base(
+        ModalUtils::render_base(
             frame,
             &self.title,
             |frame, area, theme| {
@@ -243,7 +237,7 @@ impl ModalComponent for TextInputModal {
 
                 // Buttons
                 let selected_index = if self.selected_ok { 0 } else { 1 };
-                self.render_buttons(frame, layout[layout_index], &styled_buttons, selected_index);
+                ModalUtils::render_buttons(frame, layout[layout_index], &styled_buttons, selected_index);
                 layout_index += 1;
 
                 // Help text
@@ -258,9 +252,5 @@ impl ModalComponent for TextInputModal {
             50,
             modal_height
         );
-    }
-
-    fn get_input(&self) -> Option<&str> {
-        Some(&self.input_buffer)
     }
 }

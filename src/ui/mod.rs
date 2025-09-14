@@ -5,9 +5,11 @@ pub mod notification;
 use crossterm::event::KeyEvent;
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
+
 use crate::error::AppResult;
+use crate::modals::{ModalMetadata, ModalResponse};
 use crate::theme::Theme;
-use crate::types::{AppAction, ModalMetadata};
+use crate::types::AppAction;
 
 pub trait ViewBase {
     type Context<'ctx>;
@@ -18,16 +20,10 @@ pub trait ViewBase {
 }
 
 pub trait ModalResponderComponent {
-    type Response<'r>;
 
     /// Handle a modal response with its associated metadata.
     /// Returns a KeyResponse if the app state should change.
-    async fn handle_modal_response<'r>(
-        &mut self,
-        modal_id: String,
-        value: Self::Response<'r>,
-        metadata: ModalMetadata
-    ) -> Option<AppAction>;
+    fn handle_modal_response(&mut self, response: ModalResponse, metadata: ModalMetadata) -> Option<AppAction>;
 }
 
 pub fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {

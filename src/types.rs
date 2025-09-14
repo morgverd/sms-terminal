@@ -7,52 +7,24 @@ use ansi_escape_sequences::strip_ansi;
 use unicode_general_category::{get_general_category, GeneralCategory};
 
 use crate::error::AppError;
-use crate::ui::modals::ModalComponent;
+use crate::modals::AppModal;
 use crate::ui::notification::NotificationType;
 
-/// A shortened version of a StoredSmsMessage that only
-/// stores the information used in messages_table.
-#[derive(Clone, Debug)]
-pub struct SmsMessage {
-    pub id: String,
-    pub direction: String,
-    pub timestamp: String,
-    pub content: String
-}
-impl SmsMessage {
-    pub fn ref_array(&self) -> [&String; 4] {
-        [&self.id, &self.direction, &self.timestamp, &self.content]
-    }
-}
-impl From<&SmsStoredMessage> for SmsMessage {
-    fn from(value: &SmsStoredMessage) -> Self {
+#[derive(Debug, PartialEq)]
+pub enum AppAction {
+    SetAppState(ViewState),
+    ShowModal(AppModal),
+    HandleIncomingMessage(SmsStoredMessage),
+    ShowNotification(NotificationType),
+    ShowError {
+        message: String,
+        dismissible: bool
+    },
+    Exit,
 
-        // Get datetime from timestamp value, or local time if unset / invalid.
-        let dt = value.completed_at.or(value.created_at)
-            .map(|t| Local.timestamp_opt(t as i64, 0).single())
-            .flatten()
-            .unwrap_or_else(|| Local::now());
-
-        Self {
-            id: value.message_id.to_string(),
-            direction: if value.is_outgoing { "← OUT" } else { "→ IN" }.to_string(),
-            timestamp: dt.format("%d/%m/%y %H:%M").to_string(),
-
-            // Remove all control characters from being displayed.
-            // This includes newlines etc.
-            content: strip_ansi(&value.message_content)
-                .chars()
-                .filter(|c| !c.is_control()
-                    && !matches!(
-                        get_general_category(*c),
-                        GeneralCategory::Format
-                            | GeneralCategory::Control
-                            | GeneralCategory::Unassigned
-                    )
-                )
-                .collect(),
-        }
-    }
+    /// Unimplemented, but left to hopefully spur me into finishing
+    /// it since it is the only thing showing warnings on compile!
+    DeliveryFailure(String)
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -98,110 +70,49 @@ impl Display for ViewState {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum ModalMetadata {
-    SendMessage(String, String),
-    PhoneNumber(String),
-    None
+/// A shortened version of a StoredSmsMessage that only
+/// stores the information used in messages_table.
+#[derive(Clone, Debug)]
+pub struct SmsMessage {
+    pub id: String,
+    pub direction: String,
+    pub timestamp: String,
+    pub content: String
 }
-impl ModalMetadata {
-    pub fn phone(number: impl Into<String>) -> Self {
-        Self::PhoneNumber(number.into())
+impl SmsMessage {
+    pub fn ref_array(&self) -> [&String; 4] {
+        [&self.id, &self.direction, &self.timestamp, &self.content]
     }
+}
+impl From<&SmsStoredMessage> for SmsMessage {
+    fn from(value: &SmsStoredMessage) -> Self {
 
-    pub fn as_phone(&self) -> Option<&str> {
-        match self {
-            Self::SendMessage(phone, _) => Some(phone),
-            Self::PhoneNumber(phone) => Some(phone),
-            _ => None,
+        // Get datetime from timestamp value, or local time if unset / invalid.
+        let dt = value.completed_at.or(value.created_at)
+            .map(|t| Local.timestamp_opt(t as i64, 0).single())
+            .flatten()
+            .unwrap_or_else(|| Local::now());
+
+        Self {
+            id: value.message_id.to_string(),
+            direction: if value.is_outgoing { "← OUT" } else { "→ IN" }.to_string(),
+            timestamp: dt.format("%d/%m/%y %H:%M").to_string(),
+
+            // Remove all control characters from being displayed.
+            // This includes newlines etc.
+            content: strip_ansi(&value.message_content)
+                .chars()
+                .filter(|c| !c.is_control()
+                    && !matches!(
+                        get_general_category(*c),
+                        GeneralCategory::Format
+                            | GeneralCategory::Control
+                            | GeneralCategory::Unassigned
+                    )
+                )
+                .collect(),
         }
     }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum AppModal {
-    Confirmation {
-        ui: crate::ui::modals::confirmation::ConfirmationModal,
-        id: String,
-        metadata: ModalMetadata
-    },
-    TextInput {
-        ui: crate::ui::modals::text_input::TextInputModal,
-        id: String,
-        metadata: ModalMetadata
-    },
-    Loading {
-        ui: crate::ui::modals::loading::LoadingModal,
-        metadata: ModalMetadata
-    }
-}
-impl AppModal {
-
-    #[inline]
-    pub fn loading(message: impl Into<String>) -> Self {
-        Self::Loading {
-            ui: crate::ui::modals::loading::LoadingModal::new(message.into()),
-            metadata: ModalMetadata::None
-        }
-    }
-
-    #[inline]
-    pub fn with_metadata(mut self, metadata: ModalMetadata) -> Self {
-        match &mut self {
-            AppModal::Confirmation { metadata: m, .. } => *m = metadata,
-            AppModal::TextInput { metadata: m, .. } => *m = metadata,
-            AppModal::Loading { metadata: m, .. } => *m = metadata
-        }
-        self
-    }
-
-    #[inline]
-    pub fn should_render_views(&self) -> bool {
-        match &self {
-            AppModal::Loading { ui, .. } => ui.should_render_views(),
-            AppModal::TextInput { ui, .. } => ui.should_render_views(),
-            AppModal::Confirmation { ui, .. } => ui.should_render_views()
-        }
-    }
-}
-impl From<(&'static str, crate::ui::modals::text_input::TextInputModal)> for AppModal {
-    fn from((message, ui): (&'static str, crate::ui::modals::text_input::TextInputModal)) -> Self {
-        Self::TextInput { ui, id: message.to_string(), metadata: ModalMetadata::None }
-    }
-}
-impl From<(&'static str, crate::ui::modals::confirmation::ConfirmationModal)> for AppModal {
-    fn from((message, ui): (&'static str, crate::ui::modals::confirmation::ConfirmationModal)) -> Self {
-        Self::Confirmation { ui, id: message.into(), metadata: ModalMetadata::None }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum ModalResponse {
-    Confirmation {
-        modal_id: String,
-        confirmed: bool,
-    },
-    TextInput {
-        modal_id: String,
-        value: Option<String>
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum AppAction {
-    SetAppState(ViewState),
-    ShowModal(AppModal),
-    HandleIncomingMessage(SmsStoredMessage),
-    ShowNotification(NotificationType),
-    ShowError {
-        message: String,
-        dismissible: bool
-    },
-    Exit,
-
-    /// Unimplemented, but left to hopefully spur me into finishing
-    /// it since it is the only thing showing warnings on compile!
-    DeliveryFailure(String)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

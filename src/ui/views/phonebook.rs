@@ -9,8 +9,9 @@ use sms_client::http::types::{HttpPaginationOptions, LatestNumberFriendlyNamePai
 
 use crate::app::AppContext;
 use crate::error::AppResult;
+use crate::modals::{AppModal, ModalMetadata, ModalResponse};
 use crate::theme::Theme;
-use crate::types::{ViewState, AppAction, AppModal, ModalMetadata};
+use crate::types::{ViewState, AppAction};
 use crate::ui::{centered_rect, ModalResponderComponent, ViewBase};
 use crate::ui::modals::text_input::TextInputModal;
 use crate::ui::notification::NotificationType;
@@ -134,7 +135,7 @@ impl ViewBase for PhonebookView {
                 }
 
                 // Include selected phone number in modal metadata for the response!
-                let modal = AppModal::from(("edit_friendly_name", ui))
+                let modal = AppModal::new("edit_friendly_name", ui)
                     .with_metadata(ModalMetadata::phone(phone));
 
                 return Some(AppAction::ShowModal(modal));
@@ -285,20 +286,17 @@ impl ViewBase for PhonebookView {
     }
 }
 impl ModalResponderComponent for PhonebookView {
-    type Response<'r> = String;
 
-    async fn handle_modal_response<'r>(
-        &mut self,
-        modal_id: String,
-        response: Self::Response<'r>,
-        metadata: ModalMetadata
-    ) -> Option<AppAction> {
-        if modal_id != "edit_friendly_name" { return None; }
+    fn handle_modal_response(&mut self, response: ModalResponse, metadata: ModalMetadata) -> Option<AppAction> {
         let phone_number = metadata.as_phone()?.trim();
+        let friendly_name = match response {
+            ModalResponse::TextInput(friendly_name) => friendly_name?,
+            _ => return None
+        };
 
         let http_client = self.context.0.clone();
         let cloned_phone = phone_number.to_string();
-        let cloned_name = response.clone();
+        let cloned_name = friendly_name.clone();
         let sender = self.context.1.clone();
 
         tokio::spawn(async move {
@@ -318,7 +316,7 @@ impl ModalResponderComponent for PhonebookView {
         // Update local cache
         if let Some(contact) = self.recent_contacts.iter_mut()
             .find(|(p, _)| p == phone_number) {
-            contact.1 = Some(response);
+            contact.1 = Some(friendly_name.to_string());
         }
 
         None

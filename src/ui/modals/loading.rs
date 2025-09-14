@@ -4,8 +4,9 @@ use ratatui::layout::{Alignment, Constraint, Layout};
 use ratatui::prelude::{Modifier, Style};
 use ratatui::widgets::Paragraph;
 
+use crate::modals::ModalResponse;
 use crate::theme::Theme;
-use crate::ui::modals::ModalComponent;
+use crate::ui::modals::{ModalComponent, ModalUtils};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct LoadingModal {
@@ -27,13 +28,13 @@ impl LoadingModal {
     }
 }
 impl ModalComponent for LoadingModal {
-    fn handle_key(&mut self, _key: KeyEvent) -> Option<bool> {
+    fn handle_key(&mut self, _key: KeyEvent) -> Option<ModalResponse> {
         None
     }
 
     fn render(&mut self, frame: &mut Frame, theme: &Theme) {
         self.frame_count = self.frame_count.wrapping_add(1);
-        Self::render_base(
+        ModalUtils::render_base(
             frame,
             "Please Wait",
             |frame, area, theme| {
