@@ -1,4 +1,3 @@
-use std::sync::Arc;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::{Alignment, Constraint, Layout};
 use ratatui::style::{Color, Style};
@@ -6,9 +5,9 @@ use ratatui::widgets::{Block, BorderType, Clear, List, ListItem, Paragraph};
 use ratatui::Frame;
 
 use sms_client::error::ClientError;
-use sms_client::http::HttpClient;
 use sms_client::http::types::{HttpPaginationOptions, LatestNumberFriendlyNamePair};
 
+use crate::app::AppContext;
 use crate::error::AppResult;
 use crate::theme::Theme;
 use crate::types::{AppState, KeyResponse, Modal, ModalMetadata};
@@ -16,17 +15,17 @@ use crate::ui::{centered_rect, ModalResponder, View};
 use crate::ui::dialog::TextInputDialog;
 
 pub struct PhoneInputView {
-    http_client: Arc<HttpClient>,
+    context: AppContext,
     recent_contacts: Vec<LatestNumberFriendlyNamePair>, // (phone, friendly name)
     selected_contact: Option<usize>,
     input_buffer: String,
     max_contacts: usize
 }
 impl PhoneInputView {
-    pub fn with_http(http_client: Arc<HttpClient>) -> Self {
+    pub fn with_context(context: AppContext) -> Self {
         let recent_contacts = vec![];
         Self {
-            http_client,
+            context,
             recent_contacts,
             selected_contact: None,
             input_buffer: String::new(),
@@ -41,7 +40,7 @@ impl PhoneInputView {
             self.recent_contacts.insert(0, item);
         } else {
             // Get any existing friendly name
-            let friendly_name = self.http_client.get_friendly_name(&phone_number)
+            let friendly_name = self.context.0.get_friendly_name(&phone_number)
                 .await
                 .map_err(|e| ClientError::from(e))?;
 
@@ -102,7 +101,7 @@ impl View for PhoneInputView {
 
         // Request first page of latest contacts.
         let pagination = HttpPaginationOptions::default().with_limit(self.max_contacts as u64);
-        self.recent_contacts = self.http_client.get_latest_numbers(Some(pagination))
+        self.recent_contacts = self.context.0.get_latest_numbers(Some(pagination))
             .await
             .map_err(|e| ClientError::from(e))?
             .into_iter()
@@ -297,7 +296,7 @@ impl ModalResponder for PhoneInputView {
         let phone_number = metadata.as_phone()?.trim();
 
         // TODO: Proper error handling for HTTP result!
-        let http_client = self.http_client.clone();
+        let http_client = self.context.0.clone();
         let cloned_phone = phone_number.to_string();
         let cloned_name = response.clone();
         tokio::spawn(async move {

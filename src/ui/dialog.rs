@@ -11,7 +11,7 @@ use crate::ui::centered_rect;
 pub trait Dialog {
 
     fn handle_key(&mut self, key: KeyEvent) -> Option<bool>;
-    fn render(&self, frame: &mut Frame, theme: &Theme);
+    fn render(&mut self, frame: &mut Frame, theme: &Theme);
     fn get_input(&self) -> Option<&str> {
         None
     }
@@ -182,7 +182,7 @@ impl Dialog for ConfirmationDialog {
             _ => None,
         }
     }
-    fn render(&self, frame: &mut Frame, theme: &Theme) {
+    fn render(&mut self, frame: &mut Frame, theme: &Theme) {
         let button_styles = ButtonStyles::from_theme(theme);
         let styled_buttons = DialogButton::create_yes_no_buttons(&button_styles);
 
@@ -369,7 +369,7 @@ impl Dialog for TextInputDialog {
         }
     }
 
-    fn render(&self, frame: &mut Frame, theme: &Theme) {
+    fn render(&mut self, frame: &mut Frame, theme: &Theme) {
         let available_height = frame.area().height.saturating_sub(4); // Leave some margin
         let dialog_height = Self::BASE_HEIGHT.max(available_height.min(25)); // Cap at reasonable max
 
@@ -474,12 +474,63 @@ impl Dialog for TextInputDialog {
                 }
             },
             theme,
-            55,
+            50,
             dialog_height
         );
     }
 
     fn get_input(&self) -> Option<&str> {
         Some(&self.input_buffer)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LoadingDialog {
+    pub message: String,
+    pub frame_count: u64,
+}
+impl LoadingDialog {
+    pub fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            frame_count: 0,
+        }
+    }
+
+    fn get_spinner_char(&self) -> char {
+        let spinner_chars = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+        let index = self.frame_count % spinner_chars.len() as u64;
+        spinner_chars[index as usize]
+    }
+}
+impl Dialog for LoadingDialog {
+    fn handle_key(&mut self, _key: KeyEvent) -> Option<bool> {
+        None
+    }
+
+    fn render(&mut self, frame: &mut Frame, theme: &Theme) {
+        self.frame_count = self.frame_count.wrapping_add(1);
+        Self::render_base(
+            frame,
+            "Please Wait",
+            |frame, area, theme| {
+                let layout = Layout::vertical([
+                    Constraint::Length(1), // Top spacer
+                    Constraint::Length(1), // Spinner + message line
+                    Constraint::Length(1)  // Bottom spacer
+                ])
+                    .split(area);
+
+                let spinner = Paragraph::new(format!("{} {}", self.get_spinner_char(), self.message.trim()))
+                    .style(Style::default()
+                        .fg(theme.text_accent)
+                        .add_modifier(Modifier::BOLD))
+                    .alignment(Alignment::Center);
+                frame.render_widget(spinner, layout[1]);
+            },
+            theme,
+            50,
+            10
+        );
     }
 }

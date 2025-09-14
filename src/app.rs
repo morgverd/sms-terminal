@@ -1,10 +1,11 @@
+use std::sync::Arc;
 use color_eyre::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
 use ratatui::{DefaultTerminal, Frame};
 use std::time::Duration;
 use ratatui::style::Color;
 use sms_client::Client;
-use sms_client::http::types::HttpOutgoingSmsMessage;
+use sms_client::http::HttpClient;
 use sms_client::types::SmsStoredMessage;
 use sms_client::ws::types::WebsocketMessage;
 use tokio::sync::mpsc;
@@ -29,8 +30,12 @@ pub enum LiveEvent {
     ShowError {
         message: String,
         dismissible: bool
-    }
+    },
+    ShowLoadingModal(&'static str),
+    SetAppState(AppState)
 }
+
+pub type AppContext = (Arc<HttpClient>, mpsc::UnboundedSender<LiveEvent>);
 
 pub struct App {
     app_state: AppState,
@@ -53,14 +58,16 @@ impl App {
             .map_err(|e| AppError::ConfigError(e.to_string()))?;
 
         let (tx, rx) = mpsc::unbounded_channel();
+        let context: AppContext = (client.http_arc(), tx.clone());
+
         Ok(Self {
             app_state: AppState::InputPhone,
             current_modal: None,
             key_debouncer: KeyDebouncer::new(DEBOUNCE_DURATION),
             theme_manager: ThemeManager::with_preset(config.theme),
-            phone_input_view: PhoneInputView::with_http(client.http_arc()),
-            messages_view: MessagesTableView::with_http(client.http_arc()),
-            sms_input_view: SmsInputView::new(),
+            phone_input_view: PhoneInputView::with_context(context.clone()),
+            messages_view: MessagesTableView::with_context(context.clone()),
+            sms_input_view: SmsInputView::with_context(context),
             error_view: ErrorView::new(),
             notification_view: NotificationView::new(),
             message_receiver: rx,
@@ -121,10 +128,11 @@ impl App {
         }
 
         // Render modal on top of main view
-        if let Some(modal) = &self.current_modal {
+        if let Some(modal) = &mut self.current_modal {
             match modal {
                 Modal::Confirmation { dialog, .. } => dialog.render(frame, theme),
                 Modal::TextInput { dialog, .. } => dialog.render(frame, theme),
+                Modal::Loading { dialog, .. } => dialog.render(frame, theme)
             }
         }
 
@@ -213,7 +221,8 @@ impl App {
                         None
                     };
                     (response, metadata.clone())
-                }
+                },
+                Modal::Loading { .. } => return None
             };
 
             if let Some(response) = modal_response {
@@ -244,13 +253,11 @@ impl App {
                 if !confirmed {
                     return None; // User cancelled
                 }
-
-                // Handle confirmations
                 match modal_id.as_str() {
-                    "send_sms" => {
-                        let phone_number = self.app_state.get_phone_number()?;
-                        let message_content = self.sms_input_view.get_current_message();
-                        self.handle_send_sms(&phone_number, &*message_content).await
+                    "confirm_sms_send" => {
+                        self.sms_input_view.handle_modal_response(
+                            modal_id, confirmed, metadata
+                        ).await
                     },
                     _ => None
                 }
@@ -259,53 +266,16 @@ impl App {
                 let Some(value) = value else {
                     return None; // User cancelled
                 };
-
-                // Delegate to the appropriate view's modal responder
-                match (&mut self.app_state, modal_id.as_str()) {
-                    (AppState::InputPhone, "edit_friendly_name") => {
+                match modal_id.as_str() {
+                    "edit_friendly_name" => {
                         self.phone_input_view.handle_modal_response(
-                            modal_id.clone(), value, metadata
+                            modal_id, value, metadata
                         ).await
                     },
                     _ => None
                 }
             }
         }
-    }
-
-    async fn handle_send_sms(&mut self, phone_number: &str, message_content: &str) -> Option<KeyResponse> {
-        let message = HttpOutgoingSmsMessage::simple_message(
-            phone_number.to_string(),
-            message_content.to_string()
-        );
-
-        // Send the SMS message.
-        let notification = match self.sms_client.http_arc().send_sms(&message).await {
-            Ok(response) => {
-
-                // This is to ensure that the message is pushed to views even if the WebSocket is disabled.
-                let _ = self.handle_new_message(
-                    SmsStoredMessage::from((message, response))
-                ).await;
-
-                NotificationType::GenericMessage {
-                    color: Color::Green,
-                    title: "Message Sent".to_string(),
-                    message: format!("Message #{} was sent (ref {})!", response.message_id, response.reference_id),
-                }
-            },
-            Err(e) => {
-                NotificationType::GenericMessage {
-                    color: Color::Red,
-                    title: "Send Failure".to_string(),
-                    message: e.to_string()
-                }
-            }
-        };
-
-        // Show resulting notification and transition back to messages view.
-        self.notification_view.add_notification(notification);
-        Some(KeyResponse::SetAppState(AppState::view_messages(phone_number)))
     }
 
     async fn handle_new_message(&mut self, sms_message: SmsStoredMessage) -> AppResult<()> {
@@ -392,6 +362,13 @@ impl App {
                     if allowed {
                         self.transition_state(AppState::Error { message, dismissible }).await;
                     }
+                },
+                LiveEvent::ShowLoadingModal(message) => self.current_modal = Some(Modal::create_loading(message)),
+                LiveEvent::SetAppState(new_state) => {
+                    if matches!(self.current_modal, Some(Modal::Loading { .. })) {
+                        self.current_modal = None;
+                    }
+                    self.transition_state(new_state).await
                 }
             }
         }

@@ -75,15 +75,6 @@ impl AppState {
     pub fn compose_sms(phone_number: &str) -> Self {
         Self::ComposeSms { phone_number: phone_number.to_string() }
     }
-
-    pub fn get_phone_number(&self) -> Option<String> {
-        match self {
-            AppState::InputPhone => None,
-            AppState::ViewMessages { phone_number, .. } => Some(phone_number.clone()),
-            AppState::ComposeSms { phone_number } => Some(phone_number.clone()),
-            AppState::Error { .. } => None
-        }
-    }
 }
 impl From<AppError> for AppState {
     fn from(error: AppError) -> Self {
@@ -106,6 +97,7 @@ impl Display for AppState {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ModalMetadata {
+    SendMessage(String, String),
     PhoneNumber(String),
     None
 }
@@ -116,6 +108,7 @@ impl ModalMetadata {
 
     pub fn as_phone(&self) -> Option<&str> {
         match self {
+            Self::SendMessage(phone, _) => Some(phone),
             Self::PhoneNumber(phone) => Some(phone),
             _ => None,
         }
@@ -132,6 +125,10 @@ pub enum Modal {
     TextInput {
         dialog: crate::ui::dialog::TextInputDialog,
         id: String,
+        metadata: ModalMetadata
+    },
+    Loading {
+        dialog: crate::ui::dialog::LoadingDialog,
         metadata: ModalMetadata
     }
 }
@@ -152,10 +149,18 @@ impl Modal {
         }
     }
 
+    pub fn create_loading(message: impl Into<String>) -> Self {
+        Self::Loading {
+            dialog: crate::ui::dialog::LoadingDialog::new(message.into()),
+            metadata: ModalMetadata::None
+        }
+    }
+
     pub fn with_metadata(mut self, metadata: ModalMetadata) -> Self {
         match &mut self {
             Modal::Confirmation { metadata: m, .. } => *m = metadata,
             Modal::TextInput { metadata: m, .. } => *m = metadata,
+            Modal::Loading { metadata: m, .. } => *m = metadata
         }
         self
     }

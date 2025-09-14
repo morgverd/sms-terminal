@@ -6,12 +6,11 @@ use ratatui::widgets::{
     ScrollbarOrientation, ScrollbarState, Table, TableState,
 };
 use ratatui::Frame;
-use sms_client::http::HttpClient;
 use sms_client::http::types::HttpPaginationOptions;
-use std::sync::Arc;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use unicode_width::UnicodeWidthStr;
 
+use crate::app::AppContext;
 use crate::error::{AppError, AppResult};
 use crate::theme::Theme;
 use crate::types::{AppState, KeyResponse, SmsMessage};
@@ -28,7 +27,7 @@ const LOAD_THRESHOLD: usize = 5;
 const MESSAGES_PER_PAGE: u64 = 20;
 
 pub struct MessagesTableView {
-    http_client: Arc<HttpClient>,
+    context: AppContext,
     state: TableState,
     messages: Vec<SmsMessage>,
     longest_item_lens: (u16, u16, u16, u16),
@@ -40,9 +39,9 @@ pub struct MessagesTableView {
     total_messages: usize
 }
 impl MessagesTableView {
-    pub fn with_http(http_client: Arc<HttpClient>) -> Self {
+    pub fn with_context(context: AppContext) -> Self {
         Self {
-            http_client,
+            context,
             state: TableState::default(),
             messages: Vec::new(),
             longest_item_lens: (10, 10, 20, 50),
@@ -88,7 +87,7 @@ impl MessagesTableView {
             .with_reverse(self.reversed);
 
         self.is_loading = true;
-        let result = self.http_client.as_ref().get_messages(phone_number, Some(pagination)).await;
+        let result = self.context.0.as_ref().get_messages(phone_number, Some(pagination)).await;
         self.is_loading = false;
 
         match result {

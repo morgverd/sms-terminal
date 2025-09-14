@@ -4,30 +4,34 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Clear, Paragraph, Wrap};
 use ratatui::Frame;
+use ratatui::prelude::Color;
 use ratatui::style::palette::tailwind;
+use sms_client::http::types::HttpOutgoingSmsMessage;
+use sms_client::types::SmsStoredMessage;
+
+use crate::app::{AppContext, LiveEvent};
 use crate::error::AppResult;
 use crate::theme::Theme;
-use crate::types::{AppState, KeyResponse, Modal};
-use crate::ui::{centered_rect, View};
+use crate::types::{AppState, KeyResponse, Modal, ModalMetadata};
+use crate::ui::{centered_rect, ModalResponder, View};
 use crate::ui::dialog::ConfirmationDialog;
+use crate::ui::notification::NotificationType;
 
 pub struct SmsInputView {
+    context: AppContext,
     cursor_position: usize,
     sms_text_buffer: String,
     is_sending: bool
 }
 impl SmsInputView {
 
-    pub fn new() -> Self {
+    pub fn with_context(context: AppContext) -> Self {
         Self {
+            context,
             cursor_position: 0,
             sms_text_buffer: String::new(),
             is_sending: false
         }
-    }
-
-    pub fn get_current_message(&self) -> String {
-        self.sms_text_buffer.clone()
     }
 
     fn move_cursor_left(&mut self) {
@@ -134,8 +138,11 @@ impl View for SmsInputView {
             KeyCode::Char(' ') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 if !self.sms_text_buffer.is_empty() {
 
-                    // Show send confirmation modal.
-                    let modal = Modal::confirmation("send_sms", ConfirmationDialog::new(format!("Send SMS to {}?", ctx)));
+                    // Show a confirmation modal with message send metadata.
+                    // This calls handle_modal_response from async loop, which then sends the message.
+                    let modal = Modal::confirmation("confirm_sms_send", ConfirmationDialog::new(format!("Send SMS to {}?", ctx)))
+                        .with_metadata(ModalMetadata::SendMessage(ctx.to_owned(), self.sms_text_buffer.clone()));
+
                     return Some(KeyResponse::ShowModal(modal));
                 }
             },
@@ -235,5 +242,58 @@ impl View for SmsInputView {
             .style(theme.secondary_style())
             .alignment(Alignment::Center);
         frame.render_widget(help, layout[2]);
+    }
+}
+impl ModalResponder for SmsInputView {
+    type Response<'r> = bool;
+
+    async fn handle_modal_response<'r>(
+        &mut self,
+        modal_id: String,
+        value: Self::Response<'r>,
+        metadata: ModalMetadata
+    ) -> Option<KeyResponse> {
+        if !value || modal_id != "confirm_sms_send" { return None; }
+
+        // Ensure it's a SendMessage metadata
+        let (phone, content) = match metadata {
+            ModalMetadata::SendMessage(phone, content) => (phone, content),
+            _ => return None
+        };
+
+        let http = self.context.0.clone();
+        let sender = self.context.1.clone();
+
+        let _ = self.context.1.send(LiveEvent::ShowLoadingModal("Sending message..."));
+        tokio::spawn(async move {
+            let message = HttpOutgoingSmsMessage::simple_message(phone.clone(), content.clone());
+
+            // Send the SMS message
+            let notification = match http.send_sms(&message).await {
+                Ok(response) => {
+                    // Push message to views to ensure its synced even if WebSocket is disabled
+                    let stored_message = SmsStoredMessage::from((message, response.clone()));
+                    let _ = sender.send(LiveEvent::NewMessage(stored_message));
+
+                    NotificationType::GenericMessage {
+                        color: Color::Green,
+                        title: "Message Sent".to_string(),
+                        message: format!("Message #{} was sent (ref {})!", response.message_id, response.reference_id),
+                    }
+                },
+                Err(e) => {
+                    NotificationType::GenericMessage {
+                        color: Color::Red,
+                        title: "Send Failure".to_string(),
+                        message: e.to_string()
+                    }
+                }
+            };
+
+            let _ = sender.send(LiveEvent::ShowNotification(notification));
+            let _ = sender.send(LiveEvent::SetAppState(AppState::view_messages(&phone)));
+        });
+
+        None
     }
 }
