@@ -338,47 +338,51 @@ impl ViewBase for MessagesView {
     }
 
     async fn handle_key<'ctx>(&mut self, key: KeyEvent, ctx: Self::Context<'ctx>) -> Option<AppAction> {
-        match key.code {
+        let view_state = match key.code {
             KeyCode::Esc => {
                 self.reset();
-                return Some(AppAction::SetAppState(ViewState::Phonebook));
+                Some(ViewState::Phonebook)
             },
             KeyCode::Char('c') | KeyCode::Char('C') => {
-                let state = ViewState::compose(ctx.0);
-                return Some(AppAction::SetAppState(state));
+                Some(ViewState::compose(ctx.0))
             },
             KeyCode::Char('r') | KeyCode::Char('R') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.reset();
-                let state = ViewState::Messages { phone_number: ctx.0.to_string(), reversed: !self.reversed };
-                return Some(AppAction::SetAppState(state));
+                Some(ViewState::Messages { phone_number: ctx.0.to_string(), reversed: !self.reversed })
             },
             KeyCode::Char('r') | KeyCode::Char('R') => {
                 match self.reload(ctx.0).await {
-                    Ok(()) => {},
-                    Err(e) => {
-                        return Some(AppAction::SetAppState(ViewState::from(e)));
-                    }
+                    Ok(()) => None,
+                    Err(e) => Some(ViewState::from(e))
                 }
             },
             KeyCode::Down => {
                 self.next_row().await;
-                if let Err(e) = self.check_load_more(ctx.0).await {
-                    return Some(AppAction::SetAppState(ViewState::from(e)));
+                match self.check_load_more(ctx.0).await {
+                    Ok(()) => None,
+                    Err(e) => Some(ViewState::from(e))
                 }
             },
             KeyCode::Up => {
                 self.previous_row().await;
+                None
             },
             KeyCode::Right => {
                 self.next_column();
+                None
             },
             KeyCode::Left => {
                 self.previous_column();
+                None
             },
-            _ => {}
-        }
+            _ => None
+        };
 
-        None
+        // If a view state is retuned, make it into a state change.
+        view_state.map(|state| AppAction::SetAppState {
+            state,
+            dismiss_modal: false
+        })
     }
     fn render<'ctx>(&mut self, frame: &mut Frame, theme: &Theme, ctx: Self::Context<'ctx>) {
         let layout = Layout::vertical([Constraint::Min(5), Constraint::Length(5)]);

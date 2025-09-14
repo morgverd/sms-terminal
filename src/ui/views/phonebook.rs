@@ -153,9 +153,10 @@ impl ViewBase for PhonebookView {
                     let phone_number = self.input_buffer.clone();
                     self.input_buffer.clear();
 
-                    return Some(AppAction::SetAppState(
-                        ViewState::view_messages(&*phone_number)
-                    ));
+                    return Some(AppAction::SetAppState {
+                        state: ViewState::view_messages(&*phone_number),
+                        dismiss_modal: false
+                    });
                 }
             },
             KeyCode::Down => {

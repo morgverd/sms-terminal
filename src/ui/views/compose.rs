@@ -1,4 +1,3 @@
-use std::fs::Metadata;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::{Alignment, Constraint, Layout};
 use ratatui::style::{Modifier, Style};
@@ -134,9 +133,11 @@ impl ViewBase for ComposeView {
 
         match key.code {
             KeyCode::Esc => {
-                let state = ViewState::view_messages(ctx);
                 self.sms_text_buffer.clear();
-                return Some(AppAction::SetAppState(state));
+                return Some(AppAction::SetAppState {
+                    state: ViewState::view_messages(ctx),
+                    dismiss_modal: false
+                });
             },
             KeyCode::Char(' ') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 if !self.sms_text_buffer.is_empty() {
@@ -290,7 +291,11 @@ impl ModalResponderComponent for ComposeView {
             };
 
             let _ = sender.send(AppAction::ShowNotification(notification));
-            let _ = sender.send(AppAction::SetAppState(ViewState::view_messages(&phone)));
+            let _ = sender.send(AppAction::SetAppState {
+                state: ViewState::view_messages(&phone),
+                // Ensure the loading modal is dismissed on this state change.
+                dismiss_modal: true
+            });
         });
 
         let modal = AppModal::new("sms_sending", LoadingModal::new("Sending message..."));

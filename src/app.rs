@@ -156,14 +156,15 @@ impl App {
 
     async fn handle_app_action(&mut self, response: AppAction) -> bool {
         match response {
-            AppAction::SetAppState(new_state) => {
+            AppAction::SetAppState { state, dismiss_modal } => {
 
-                // TODO: SOLVE THIS!!
-                // if matches!(self.current_modal, Some(AppModal::Loading { .. })) {
-                //     self.set_modal(None);
-                // }
-                self.transition_state(new_state).await
-            }
+                // Allow the state change to dismiss the current modal.
+                // This is useful for transitioning out of a loading state.
+                if self.current_modal.is_some() && dismiss_modal {
+                    self.set_modal(None);
+                }
+                self.transition_state(state).await;
+            },
             AppAction::ShowModal(modal) => {
                 self.set_modal(Some(modal));
             },

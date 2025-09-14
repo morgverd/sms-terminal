@@ -12,7 +12,10 @@ use crate::ui::notification::NotificationType;
 
 #[derive(Debug, PartialEq)]
 pub enum AppAction {
-    SetAppState(ViewState),
+    SetAppState {
+        state: ViewState,
+        dismiss_modal: bool
+    },
     ShowModal(AppModal),
     HandleIncomingMessage(SmsStoredMessage),
     ShowNotification(NotificationType),
