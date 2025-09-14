@@ -37,7 +37,8 @@ pub struct App {
     message_receiver: mpsc::UnboundedReceiver<AppAction>,
     message_sender: mpsc::UnboundedSender<AppAction>,
     sms_client: Client,
-    websocket_enabled: bool
+    websocket_enabled: bool,
+    render_views: bool
 }
 impl App {
     pub fn new(config: TerminalConfig) -> Result<Self> {
@@ -60,7 +61,8 @@ impl App {
             message_receiver: rx,
             message_sender: tx,
             sms_client: client,
-            websocket_enabled: config.websocket
+            websocket_enabled: config.websocket,
+            render_views: true
         })
     }
 
@@ -109,11 +111,13 @@ impl App {
         let theme = self.theme_manager.current();
 
         // Render main application view
-        match &self.app_state {
-            AppState::InputPhone => self.phone_input_view.render(frame, theme, ()),
-            AppState::ViewMessages { phone_number, reversed } => self.messages_view.render(frame, theme, (phone_number, *reversed)),
-            AppState::ComposeSms { phone_number } => self.sms_input_view.render(frame, theme, phone_number),
-            AppState::Error { message, dismissible } => self.error_view.render(frame, theme, (message, *dismissible))
+        if self.render_views {
+            match &self.app_state {
+                AppState::InputPhone => self.phone_input_view.render(frame, theme, ()),
+                AppState::ViewMessages { phone_number, reversed } => self.messages_view.render(frame, theme, (phone_number, *reversed)),
+                AppState::ComposeSms { phone_number } => self.sms_input_view.render(frame, theme, phone_number),
+                AppState::Error { message, dismissible } => self.error_view.render(frame, theme, (message, *dismissible))
+            }
         }
 
         // Render modal on top of main view
@@ -158,12 +162,12 @@ impl App {
         match response {
             AppAction::SetAppState(new_state) => {
                 if matches!(self.current_modal, Some(Modal::Loading { .. })) {
-                    self.current_modal = None;
+                    self.set_modal(None);
                 }
                 self.transition_state(new_state).await
             }
             AppAction::ShowModal(modal) => {
-                self.current_modal = Some(modal);
+                self.set_modal(Some(modal));
             },
             AppAction::Exit => return true,
             AppAction::HandleIncomingMessage(sms_message) => {
@@ -242,7 +246,7 @@ impl App {
             };
 
             return if let Some(response) = modal_response {
-                self.current_modal = None;
+                self.set_modal(None);
                 self.handle_modal_response(response, metadata).await
             } else {
                 None
@@ -323,6 +327,15 @@ impl App {
         }
 
         Ok(())
+    }
+
+    fn set_modal(&mut self, modal: Option<Modal>) {
+        // Allow the modal to determine if background views should render.
+        self.render_views = modal.as_ref()
+            .map(|m| m.should_render_views())
+            .unwrap_or(true);
+
+        self.current_modal = modal;
     }
 
     async fn start_sms_websocket(&self) -> AppResult<()> {

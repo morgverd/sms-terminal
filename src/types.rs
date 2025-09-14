@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 use ansi_escape_sequences::strip_ansi;
 use unicode_general_category::{get_general_category, GeneralCategory};
 use crate::error::AppError;
+use crate::ui::dialog::Dialog;
 use crate::ui::notification::NotificationType;
 
 /// A shortened version of a StoredSmsMessage that only
@@ -134,29 +135,16 @@ pub enum Modal {
     }
 }
 impl Modal {
-    pub fn confirmation(id: impl Into<String>, dialog: crate::ui::dialog::ConfirmationDialog) -> Self {
-        Self::Confirmation {
-            id: id.into(),
-            dialog,
-            metadata: ModalMetadata::None,
-        }
-    }
 
-    pub fn text_input(id: impl Into<String>, dialog: crate::ui::dialog::TextInputDialog) -> Self {
-        Self::TextInput {
-            id: id.into(),
-            dialog,
-            metadata: ModalMetadata::None,
-        }
-    }
-
-    pub fn create_loading(message: impl Into<String>) -> Self {
+    #[inline]
+    pub fn loading(message: impl Into<String>) -> Self {
         Self::Loading {
             dialog: crate::ui::dialog::LoadingDialog::new(message.into()),
             metadata: ModalMetadata::None
         }
     }
 
+    #[inline]
     pub fn with_metadata(mut self, metadata: ModalMetadata) -> Self {
         match &mut self {
             Modal::Confirmation { metadata: m, .. } => *m = metadata,
@@ -164,6 +152,25 @@ impl Modal {
             Modal::Loading { metadata: m, .. } => *m = metadata
         }
         self
+    }
+
+    #[inline]
+    pub fn should_render_views(&self) -> bool {
+        match &self {
+            Modal::Loading { dialog, .. } => dialog.should_render_views(),
+            Modal::TextInput { dialog, .. } => dialog.should_render_views(),
+            Modal::Confirmation { dialog, .. } => dialog.should_render_views()
+        }
+    }
+}
+impl From<(&'static str, crate::ui::dialog::TextInputDialog)> for Modal {
+    fn from((message, dialog): (&'static str, crate::ui::dialog::TextInputDialog)) -> Self {
+        Self::TextInput { dialog, id: message.to_string(), metadata: ModalMetadata::None }
+    }
+}
+impl From<(&'static str, crate::ui::dialog::ConfirmationDialog)> for Modal {
+    fn from((message, dialog): (&'static str, crate::ui::dialog::ConfirmationDialog)) -> Self {
+        Self::Confirmation { dialog, id: message.into(), metadata: ModalMetadata::None }
     }
 }
 

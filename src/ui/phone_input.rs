@@ -13,6 +13,7 @@ use crate::theme::Theme;
 use crate::types::{AppState, AppAction, Modal, ModalMetadata};
 use crate::ui::{centered_rect, ModalResponder, View};
 use crate::ui::dialog::TextInputDialog;
+use crate::ui::notification::NotificationType;
 
 pub struct PhoneInputView {
     context: AppContext,
@@ -133,7 +134,7 @@ impl View for PhoneInputView {
                 }
 
                 // Include selected phone number in modal metadata for the response!
-                let modal = Modal::text_input("edit_friendly_name", dialog)
+                let modal = Modal::from(("edit_friendly_name", dialog))
                     .with_metadata(ModalMetadata::phone(phone));
 
                 return Some(AppAction::ShowModal(modal));
@@ -295,12 +296,23 @@ impl ModalResponder for PhoneInputView {
         if modal_id != "edit_friendly_name" { return None; }
         let phone_number = metadata.as_phone()?.trim();
 
-        // TODO: Proper error handling for HTTP result!
         let http_client = self.context.0.clone();
         let cloned_phone = phone_number.to_string();
         let cloned_name = response.clone();
+        let sender = self.context.1.clone();
+
         tokio::spawn(async move {
-            let _ = http_client.set_friendly_name(&cloned_phone, Some(cloned_name)).await;
+            if let Err(_) = http_client.set_friendly_name(&cloned_phone, Some(cloned_name)).await {
+
+                // If the edit failed, show a notification.
+                // It's not worth changing to the error state just over a failed friendly name change.
+                let notification = NotificationType::GenericMessage {
+                    color: Color::Red,
+                    title: "Edit Failed".to_string(),
+                    message: format!("Failed to change friendly name for {}", cloned_phone),
+                };
+                let _ = sender.send(AppAction::ShowNotification(notification));
+            }
         });
 
         // Update local cache

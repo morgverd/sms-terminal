@@ -16,6 +16,11 @@ pub trait Dialog {
         None
     }
 
+    /// Should views from AppState still be rendered whilst Dialog is active.
+    fn should_render_views(&self) -> bool {
+        true
+    }
+
     fn render_base(
         frame: &mut Frame,
         title: &str,
@@ -532,5 +537,11 @@ impl Dialog for LoadingDialog {
             50,
             10
         );
+    }
+
+    // The loading dialog should be the only thing visible,
+    // hiding the current app state / view entirely.
+    fn should_render_views(&self) -> bool {
+        false
     }
 }

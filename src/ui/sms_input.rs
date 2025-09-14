@@ -140,7 +140,7 @@ impl View for SmsInputView {
 
                     // Show a confirmation modal with message send metadata.
                     // This calls handle_modal_response from async loop, which then sends the message.
-                    let modal = Modal::confirmation("confirm_sms_send", ConfirmationDialog::new(format!("Send SMS to {}?", ctx)))
+                    let modal = Modal::from(("confirm_sms_send", ConfirmationDialog::new(format!("Send SMS to {}?", ctx))))
                         .with_metadata(ModalMetadata::SendMessage(ctx.to_owned(), self.sms_text_buffer.clone()));
 
                     return Some(AppAction::ShowModal(modal));
@@ -293,7 +293,6 @@ impl ModalResponder for SmsInputView {
             let _ = sender.send(AppAction::SetAppState(AppState::view_messages(&phone)));
         });
 
-        let modal = Modal::create_loading("Sending message!...");
-        Some(AppAction::ShowModal(modal))
+        Some(AppAction::ShowModal(Modal::loading("Sending message...")))
     }
 }
