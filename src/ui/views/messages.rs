@@ -13,11 +13,11 @@ use unicode_width::UnicodeWidthStr;
 use crate::app::AppContext;
 use crate::error::{AppError, AppResult};
 use crate::theme::Theme;
-use crate::types::{AppState, AppAction, SmsMessage};
-use crate::ui::View;
+use crate::types::{ViewState, AppAction, SmsMessage};
+use crate::ui::ViewBase;
 
 const INFO_TEXT: [&str; 2] = [
-    "(↑/↓) navigate | (←/→) columns | (Ctrl+r) order",
+    "(↑/↓) navigate | (←/→) columns | (Ctrl+R) order",
     "(Esc) back | (r) reload | (c) compose SMS"
 ];
 
@@ -26,7 +26,7 @@ const ITEM_HEIGHT: usize = 4;
 const LOAD_THRESHOLD: usize = 5;
 const MESSAGES_PER_PAGE: u64 = 20;
 
-pub struct MessagesTableView {
+pub struct MessagesView {
     context: AppContext,
     state: TableState,
     messages: Vec<SmsMessage>,
@@ -38,7 +38,7 @@ pub struct MessagesTableView {
     current_offset: u64,
     total_messages: usize
 }
-impl MessagesTableView {
+impl MessagesView {
     pub fn with_context(context: AppContext) -> Self {
         Self {
             context,
@@ -329,7 +329,7 @@ impl MessagesTableView {
         frame.render_widget(info_footer, area);
     }
 }
-impl View for MessagesTableView {
+impl ViewBase for MessagesView {
     type Context<'ctx> = (&'ctx String, bool);
 
     async fn load<'ctx>(&mut self, ctx: Self::Context<'ctx>) -> AppResult<()> {
@@ -341,29 +341,29 @@ impl View for MessagesTableView {
         match key.code {
             KeyCode::Esc => {
                 self.reset();
-                return Some(AppAction::SetAppState(AppState::InputPhone));
+                return Some(AppAction::SetAppState(ViewState::Phonebook));
             },
             KeyCode::Char('c') | KeyCode::Char('C') => {
-                let state = AppState::compose_sms(ctx.0);
+                let state = ViewState::compose(ctx.0);
                 return Some(AppAction::SetAppState(state));
             },
             KeyCode::Char('r') | KeyCode::Char('R') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.reset();
-                let state = AppState::ViewMessages { phone_number: ctx.0.to_string(), reversed: !self.reversed };
+                let state = ViewState::Messages { phone_number: ctx.0.to_string(), reversed: !self.reversed };
                 return Some(AppAction::SetAppState(state));
             },
             KeyCode::Char('r') | KeyCode::Char('R') => {
                 match self.reload(ctx.0).await {
                     Ok(()) => {},
                     Err(e) => {
-                        return Some(AppAction::SetAppState(AppState::from(e)));
+                        return Some(AppAction::SetAppState(ViewState::from(e)));
                     }
                 }
             },
             KeyCode::Down => {
                 self.next_row().await;
                 if let Err(e) = self.check_load_more(ctx.0).await {
-                    return Some(AppAction::SetAppState(AppState::from(e)));
+                    return Some(AppAction::SetAppState(ViewState::from(e)));
                 }
             },
             KeyCode::Up => {

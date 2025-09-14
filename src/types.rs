@@ -5,8 +5,9 @@ use sms_client::types::SmsStoredMessage;
 use std::time::{Duration, Instant};
 use ansi_escape_sequences::strip_ansi;
 use unicode_general_category::{get_general_category, GeneralCategory};
+
 use crate::error::AppError;
-use crate::ui::dialog::Dialog;
+use crate::ui::modals::ModalComponent;
 use crate::ui::notification::NotificationType;
 
 /// A shortened version of a StoredSmsMessage that only
@@ -55,13 +56,13 @@ impl From<&SmsStoredMessage> for SmsMessage {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum AppState {
-    InputPhone,
-    ViewMessages {
+pub enum ViewState {
+    Phonebook,
+    Messages {
         phone_number: String,
         reversed: bool
     },
-    ComposeSms {
+    Compose {
         phone_number: String
     },
     Error {
@@ -69,30 +70,30 @@ pub enum AppState {
         dismissible: bool
     }
 }
-impl AppState {
+impl ViewState {
     pub fn view_messages(phone_number: &str) -> Self {
-        Self::ViewMessages { phone_number: phone_number.to_string(), reversed: false }
+        Self::Messages { phone_number: phone_number.to_string(), reversed: false }
     }
 
-    pub fn compose_sms(phone_number: &str) -> Self {
-        Self::ComposeSms { phone_number: phone_number.to_string() }
+    pub fn compose(phone_number: &str) -> Self {
+        Self::Compose { phone_number: phone_number.to_string() }
     }
 }
-impl From<AppError> for AppState {
+impl From<AppError> for ViewState {
     fn from(error: AppError) -> Self {
-        AppState::Error {
+        ViewState::Error {
             message: error.to_string(),
             dismissible: false
         }
     }
 }
-impl Display for AppState {
+impl Display for ViewState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            AppState::InputPhone => write!(f, "Phonebook"),
-            AppState::ViewMessages { phone_number, .. } => write!(f, "Viewing Messages ｜ {}", phone_number),
-            AppState::ComposeSms { phone_number, .. } => write!(f, "Composing Message ｜ {}", phone_number),
-            AppState::Error { dismissible, .. } => write!(f, "{}", if *dismissible { "Fatal Error" } else { "Error" })
+            ViewState::Phonebook => write!(f, "Phonebook"),
+            ViewState::Messages { phone_number, .. } => write!(f, "Viewing Messages ｜ {}", phone_number),
+            ViewState::Compose { phone_number, .. } => write!(f, "Composing Message ｜ {}", phone_number),
+            ViewState::Error { dismissible, .. } => write!(f, "{}", if *dismissible { "Fatal Error" } else { "Error" })
         }
     }
 }
@@ -118,28 +119,28 @@ impl ModalMetadata {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum Modal {
+pub enum AppModal {
     Confirmation {
-        dialog: crate::ui::dialog::ConfirmationDialog,
+        ui: crate::ui::modals::confirmation::ConfirmationModal,
         id: String,
         metadata: ModalMetadata
     },
     TextInput {
-        dialog: crate::ui::dialog::TextInputDialog,
+        ui: crate::ui::modals::text_input::TextInputModal,
         id: String,
         metadata: ModalMetadata
     },
     Loading {
-        dialog: crate::ui::dialog::LoadingDialog,
+        ui: crate::ui::modals::loading::LoadingModal,
         metadata: ModalMetadata
     }
 }
-impl Modal {
+impl AppModal {
 
     #[inline]
     pub fn loading(message: impl Into<String>) -> Self {
         Self::Loading {
-            dialog: crate::ui::dialog::LoadingDialog::new(message.into()),
+            ui: crate::ui::modals::loading::LoadingModal::new(message.into()),
             metadata: ModalMetadata::None
         }
     }
@@ -147,9 +148,9 @@ impl Modal {
     #[inline]
     pub fn with_metadata(mut self, metadata: ModalMetadata) -> Self {
         match &mut self {
-            Modal::Confirmation { metadata: m, .. } => *m = metadata,
-            Modal::TextInput { metadata: m, .. } => *m = metadata,
-            Modal::Loading { metadata: m, .. } => *m = metadata
+            AppModal::Confirmation { metadata: m, .. } => *m = metadata,
+            AppModal::TextInput { metadata: m, .. } => *m = metadata,
+            AppModal::Loading { metadata: m, .. } => *m = metadata
         }
         self
     }
@@ -157,20 +158,20 @@ impl Modal {
     #[inline]
     pub fn should_render_views(&self) -> bool {
         match &self {
-            Modal::Loading { dialog, .. } => dialog.should_render_views(),
-            Modal::TextInput { dialog, .. } => dialog.should_render_views(),
-            Modal::Confirmation { dialog, .. } => dialog.should_render_views()
+            AppModal::Loading { ui, .. } => ui.should_render_views(),
+            AppModal::TextInput { ui, .. } => ui.should_render_views(),
+            AppModal::Confirmation { ui, .. } => ui.should_render_views()
         }
     }
 }
-impl From<(&'static str, crate::ui::dialog::TextInputDialog)> for Modal {
-    fn from((message, dialog): (&'static str, crate::ui::dialog::TextInputDialog)) -> Self {
-        Self::TextInput { dialog, id: message.to_string(), metadata: ModalMetadata::None }
+impl From<(&'static str, crate::ui::modals::text_input::TextInputModal)> for AppModal {
+    fn from((message, ui): (&'static str, crate::ui::modals::text_input::TextInputModal)) -> Self {
+        Self::TextInput { ui, id: message.to_string(), metadata: ModalMetadata::None }
     }
 }
-impl From<(&'static str, crate::ui::dialog::ConfirmationDialog)> for Modal {
-    fn from((message, dialog): (&'static str, crate::ui::dialog::ConfirmationDialog)) -> Self {
-        Self::Confirmation { dialog, id: message.into(), metadata: ModalMetadata::None }
+impl From<(&'static str, crate::ui::modals::confirmation::ConfirmationModal)> for AppModal {
+    fn from((message, ui): (&'static str, crate::ui::modals::confirmation::ConfirmationModal)) -> Self {
+        Self::Confirmation { ui, id: message.into(), metadata: ModalMetadata::None }
     }
 }
 
@@ -186,11 +187,10 @@ pub enum ModalResponse {
     }
 }
 
-/// Returned by a View key_handler to do some app action.
 #[derive(Debug, Clone, PartialEq)]
 pub enum AppAction {
-    SetAppState(AppState),
-    ShowModal(Modal),
+    SetAppState(ViewState),
+    ShowModal(AppModal),
     HandleIncomingMessage(SmsStoredMessage),
     ShowNotification(NotificationType),
     ShowError {
@@ -213,7 +213,7 @@ impl From<KeyEvent> for KeyPress {
     fn from(key: KeyEvent) -> Self {
         Self {
             code: key.code,
-            modifiers: key.modifiers,
+            modifiers: key.modifiers
         }
     }
 }

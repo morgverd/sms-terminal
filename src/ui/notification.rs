@@ -8,8 +8,8 @@ use crossterm::event::{KeyCode, KeyEvent};
 use sms_client::types::ModemStatusUpdateState;
 use crate::error::AppResult;
 use crate::theme::Theme;
-use crate::types::{AppState, AppAction};
-use crate::ui::View;
+use crate::types::{ViewState, AppAction};
+use crate::ui::ViewBase;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum NotificationType {
@@ -278,7 +278,7 @@ impl NotificationView {
         lines
     }
 }
-impl View for NotificationView {
+impl ViewBase for NotificationView {
     type Context<'ctx> = ();
 
     async fn load<'ctx>(&mut self, _ctx: Self::Context<'ctx>) -> AppResult<()> {
@@ -299,7 +299,7 @@ impl View for NotificationView {
                 {
                     self.dismiss_all();
 
-                    let state = AppState::view_messages(&*phone_number);
+                    let state = ViewState::view_messages(&*phone_number);
                     return Some(AppAction::SetAppState(state));
                 }
             },

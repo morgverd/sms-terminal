@@ -10,19 +10,19 @@ use sms_client::http::types::{HttpPaginationOptions, LatestNumberFriendlyNamePai
 use crate::app::AppContext;
 use crate::error::AppResult;
 use crate::theme::Theme;
-use crate::types::{AppState, AppAction, Modal, ModalMetadata};
-use crate::ui::{centered_rect, ModalResponder, View};
-use crate::ui::dialog::TextInputDialog;
+use crate::types::{ViewState, AppAction, AppModal, ModalMetadata};
+use crate::ui::{centered_rect, ModalResponderComponent, ViewBase};
+use crate::ui::modals::text_input::TextInputModal;
 use crate::ui::notification::NotificationType;
 
-pub struct PhoneInputView {
+pub struct PhonebookView {
     context: AppContext,
     recent_contacts: Vec<LatestNumberFriendlyNamePair>, // (phone, friendly name)
     selected_contact: Option<usize>,
     input_buffer: String,
     max_contacts: usize
 }
-impl PhoneInputView {
+impl PhonebookView {
     pub fn with_context(context: AppContext) -> Self {
         let recent_contacts = vec![];
         Self {
@@ -92,7 +92,7 @@ impl PhoneInputView {
             .unwrap_or(0)
     }
 }
-impl View for PhoneInputView {
+impl ViewBase for PhonebookView {
     type Context<'ctx> = ();
 
     async fn load<'ctx>(&mut self, _ctx: Self::Context<'ctx>) -> AppResult<()> {
@@ -126,15 +126,15 @@ impl View for PhoneInputView {
                 let selected = self.selected_contact?;
                 let (phone, name) = self.recent_contacts.get(selected)?;
 
-                let mut dialog = TextInputDialog::new("Edit Friendly Name", format!("Name for {}", phone))
+                let mut ui = TextInputModal::new("Edit Friendly Name", format!("Name for {}", phone))
                     .with_max_length(50);
 
                 if let Some(existing) = name {
-                    dialog = dialog.with_initial_value(existing);
+                    ui = ui.with_initial_value(existing);
                 }
 
                 // Include selected phone number in modal metadata for the response!
-                let modal = Modal::from(("edit_friendly_name", dialog))
+                let modal = AppModal::from(("edit_friendly_name", ui))
                     .with_metadata(ModalMetadata::phone(phone));
 
                 return Some(AppAction::ShowModal(modal));
@@ -153,7 +153,7 @@ impl View for PhoneInputView {
                     self.input_buffer.clear();
 
                     return Some(AppAction::SetAppState(
-                        AppState::view_messages(&*phone_number)
+                        ViewState::view_messages(&*phone_number)
                     ));
                 }
             },
@@ -284,7 +284,7 @@ impl View for PhoneInputView {
         }
     }
 }
-impl ModalResponder for PhoneInputView {
+impl ModalResponderComponent for PhonebookView {
     type Response<'r> = String;
 
     async fn handle_modal_response<'r>(

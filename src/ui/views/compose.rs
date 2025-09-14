@@ -12,18 +12,18 @@ use sms_client::types::SmsStoredMessage;
 use crate::app::AppContext;
 use crate::error::AppResult;
 use crate::theme::Theme;
-use crate::types::{AppState, AppAction, Modal, ModalMetadata};
-use crate::ui::{centered_rect, ModalResponder, View};
-use crate::ui::dialog::ConfirmationDialog;
+use crate::types::{ViewState, AppAction, ModalMetadata, AppModal};
+use crate::ui::{centered_rect, ModalResponderComponent, ViewBase};
+use crate::ui::modals::confirmation::ConfirmationModal;
 use crate::ui::notification::NotificationType;
 
-pub struct SmsInputView {
+pub struct ComposeView {
     context: AppContext,
     cursor_position: usize,
     sms_text_buffer: String,
     is_sending: bool
 }
-impl SmsInputView {
+impl ComposeView {
 
     pub fn with_context(context: AppContext) -> Self {
         Self {
@@ -113,7 +113,7 @@ impl SmsInputView {
         lines
     }
 }
-impl View for SmsInputView {
+impl ViewBase for ComposeView {
     type Context<'ctx> = &'ctx String;
 
     async fn load<'ctx>(&mut self, _ctx: Self::Context<'ctx>) -> AppResult<()> {
@@ -131,7 +131,7 @@ impl View for SmsInputView {
 
         match key.code {
             KeyCode::Esc => {
-                let state = AppState::view_messages(ctx);
+                let state = ViewState::view_messages(ctx);
                 self.sms_text_buffer.clear();
                 return Some(AppAction::SetAppState(state));
             },
@@ -140,7 +140,7 @@ impl View for SmsInputView {
 
                     // Show a confirmation modal with message send metadata.
                     // This calls handle_modal_response from async loop, which then sends the message.
-                    let modal = Modal::from(("confirm_sms_send", ConfirmationDialog::new(format!("Send SMS to {}?", ctx))))
+                    let modal = AppModal::from(("confirm_sms_send", ConfirmationModal::new(format!("Send SMS to {}?", ctx))))
                         .with_metadata(ModalMetadata::SendMessage(ctx.to_owned(), self.sms_text_buffer.clone()));
 
                     return Some(AppAction::ShowModal(modal));
@@ -244,7 +244,7 @@ impl View for SmsInputView {
         frame.render_widget(help, layout[2]);
     }
 }
-impl ModalResponder for SmsInputView {
+impl ModalResponderComponent for ComposeView {
     type Response<'r> = bool;
 
     async fn handle_modal_response<'r>(
@@ -290,9 +290,9 @@ impl ModalResponder for SmsInputView {
             };
 
             let _ = sender.send(AppAction::ShowNotification(notification));
-            let _ = sender.send(AppAction::SetAppState(AppState::view_messages(&phone)));
+            let _ = sender.send(AppAction::SetAppState(ViewState::view_messages(&phone)));
         });
 
-        Some(AppAction::ShowModal(Modal::loading("Sending message...")))
+        Some(AppAction::ShowModal(AppModal::loading("Sending message...")))
     }
 }

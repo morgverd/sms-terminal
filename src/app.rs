@@ -13,25 +13,25 @@ use tokio::sync::mpsc;
 use crate::TerminalConfig;
 use crate::error::{AppError, AppResult};
 use crate::theme::ThemeManager;
-use crate::types::{AppState, KeyDebouncer, KeyPress, AppAction, SmsMessage, DEBOUNCE_DURATION, ModalResponse, Modal, ModalMetadata};
-use crate::ui::dialog::Dialog;
-use crate::ui::error::ErrorView;
-use crate::ui::messages_table::MessagesTableView;
+use crate::types::{ViewState, KeyDebouncer, KeyPress, AppAction, SmsMessage, DEBOUNCE_DURATION, ModalResponse, AppModal, ModalMetadata};
+use crate::ui::{ModalResponderComponent, ViewBase};
 use crate::ui::notification::{NotificationType, NotificationView};
-use crate::ui::phone_input::PhoneInputView;
-use crate::ui::sms_input::SmsInputView;
-use crate::ui::{ModalResponder, View};
+use crate::ui::modals::ModalComponent;
+use crate::ui::views::error::ErrorView;
+use crate::ui::views::messages::MessagesView;
+use crate::ui::views::phonebook::PhonebookView;
+use crate::ui::views::compose::ComposeView;
 
 pub type AppContext = (Arc<HttpClient>, mpsc::UnboundedSender<AppAction>);
 
 pub struct App {
-    app_state: AppState,
-    current_modal: Option<Modal>,
+    view_state: ViewState,
+    current_modal: Option<AppModal>,
     key_debouncer: KeyDebouncer,
     theme_manager: ThemeManager,
-    phone_input_view: PhoneInputView,
-    messages_view: MessagesTableView,
-    sms_input_view: SmsInputView,
+    phone_input_view: PhonebookView,
+    messages_view: MessagesView,
+    sms_input_view: ComposeView,
     error_view: ErrorView,
     notification_view: NotificationView,
     message_receiver: mpsc::UnboundedReceiver<AppAction>,
@@ -49,13 +49,13 @@ impl App {
         let context: AppContext = (client.http_arc(), tx.clone());
 
         Ok(Self {
-            app_state: AppState::InputPhone,
+            view_state: ViewState::Phonebook,
             current_modal: None,
             key_debouncer: KeyDebouncer::new(DEBOUNCE_DURATION),
             theme_manager: ThemeManager::with_preset(config.theme),
-            phone_input_view: PhoneInputView::with_context(context.clone()),
-            messages_view: MessagesTableView::with_context(context.clone()),
-            sms_input_view: SmsInputView::with_context(context),
+            phone_input_view: PhonebookView::with_context(context.clone()),
+            messages_view: MessagesView::with_context(context.clone()),
+            sms_input_view: ComposeView::with_context(context),
             error_view: ErrorView::new(),
             notification_view: NotificationView::new(),
             message_receiver: rx,
@@ -81,7 +81,7 @@ impl App {
         };
 
         // Transition into starting state (which may be an error!)
-        self.transition_state(AppState::InputPhone).await;
+        self.transition_state(ViewState::Phonebook).await;
 
         loop {
             terminal.draw(|frame| self.render(frame))?;
@@ -112,20 +112,20 @@ impl App {
 
         // Render main application view
         if self.render_views {
-            match &self.app_state {
-                AppState::InputPhone => self.phone_input_view.render(frame, theme, ()),
-                AppState::ViewMessages { phone_number, reversed } => self.messages_view.render(frame, theme, (phone_number, *reversed)),
-                AppState::ComposeSms { phone_number } => self.sms_input_view.render(frame, theme, phone_number),
-                AppState::Error { message, dismissible } => self.error_view.render(frame, theme, (message, *dismissible))
+            match &self.view_state {
+                ViewState::Phonebook => self.phone_input_view.render(frame, theme, ()),
+                ViewState::Messages { phone_number, reversed } => self.messages_view.render(frame, theme, (phone_number, *reversed)),
+                ViewState::Compose { phone_number } => self.sms_input_view.render(frame, theme, phone_number),
+                ViewState::Error { message, dismissible } => self.error_view.render(frame, theme, (message, *dismissible))
             }
         }
 
         // Render modal on top of main view
         if let Some(modal) = &mut self.current_modal {
             match modal {
-                Modal::Confirmation { dialog, .. } => dialog.render(frame, theme),
-                Modal::TextInput { dialog, .. } => dialog.render(frame, theme),
-                Modal::Loading { dialog, .. } => dialog.render(frame, theme)
+                AppModal::Confirmation { ui, .. } => ui.render(frame, theme),
+                AppModal::TextInput { ui, .. } => ui.render(frame, theme),
+                AppModal::Loading { ui, .. } => ui.render(frame, theme)
             }
         }
 
@@ -133,18 +133,18 @@ impl App {
         self.notification_view.render(frame, theme, ());
     }
 
-    async fn transition_state(&mut self, new_state: AppState) {
+    async fn transition_state(&mut self, new_state: ViewState) {
         let result = match &new_state {
-            AppState::InputPhone => self.phone_input_view.load(()).await,
-            AppState::ViewMessages { phone_number, reversed } => self.messages_view.load((phone_number, *reversed)).await,
-            AppState::ComposeSms { phone_number } => self.sms_input_view.load(phone_number).await,
+            ViewState::Phonebook => self.phone_input_view.load(()).await,
+            ViewState::Messages { phone_number, reversed } => self.messages_view.load((phone_number, *reversed)).await,
+            ViewState::Compose { phone_number } => self.sms_input_view.load(phone_number).await,
             _ => Ok(())
         };
 
         // Get the actual state by first checking if any of
         // the view transition results returned an error.
         let actual_state = if let Err(e) = result {
-            AppState::from(e)
+            ViewState::from(e)
         } else {
             new_state
         };
@@ -154,14 +154,14 @@ impl App {
             crossterm::terminal::SetTitle(format!("SMS Terminal v{} ｜ {}", crate::VERSION, actual_state)),
         );
 
-        self.app_state = actual_state;
+        self.view_state = actual_state;
         self.key_debouncer.reset();
     }
 
     async fn handle_app_action(&mut self, response: AppAction) -> bool {
         match response {
             AppAction::SetAppState(new_state) => {
-                if matches!(self.current_modal, Some(Modal::Loading { .. })) {
+                if matches!(self.current_modal, Some(AppModal::Loading { .. })) {
                     self.set_modal(None);
                 }
                 self.transition_state(new_state).await
@@ -172,7 +172,7 @@ impl App {
             AppAction::Exit => return true,
             AppAction::HandleIncomingMessage(sms_message) => {
                 if let Err(e) = self.handle_new_message(sms_message).await {
-                    self.transition_state(AppState::from(e)).await;
+                    self.transition_state(ViewState::from(e)).await;
                 }
             },
             AppAction::DeliveryFailure(_) => unimplemented!("Oops!"),
@@ -181,14 +181,14 @@ impl App {
 
                 // If another error is being displayed, only overwrite it if
                 // that one is dismissable but this one isn't. Otherwise, ignore.
-                let allowed = match &self.app_state {
-                    AppState::Error { dismissible: existing_dismissable, .. } => {
+                let allowed = match &self.view_state {
+                    ViewState::Error { dismissible: existing_dismissable, .. } => {
                         *existing_dismissable || !dismissible
                     },
                     _ => true
                 };
                 if allowed {
-                    self.transition_state(AppState::Error { message, dismissible }).await;
+                    self.transition_state(ViewState::Error { message, dismissible }).await;
                 }
             }
         };
@@ -216,8 +216,8 @@ impl App {
         // Handle modal interactions
         if let Some(modal) = &mut self.current_modal {
             let (modal_response, metadata) = match modal {
-                Modal::Confirmation { dialog, id, metadata } => {
-                    let response = if let Some(confirmed) = dialog.handle_key(key) {
+                AppModal::Confirmation { ui, id, metadata } => {
+                    let response = if let Some(confirmed) = ui.handle_key(key) {
                         Some(ModalResponse::Confirmation {
                             modal_id: id.clone(),
                             confirmed,
@@ -227,12 +227,12 @@ impl App {
                     };
                     (response, metadata.clone())
                 },
-                Modal::TextInput { dialog, id, metadata } => {
-                    let response = if let Some(confirmed) = dialog.handle_key(key) {
+                AppModal::TextInput { ui, id, metadata } => {
+                    let response = if let Some(confirmed) = ui.handle_key(key) {
                         Some(ModalResponse::TextInput {
                             modal_id: id.clone(),
                             value: if confirmed {
-                                dialog.get_input().map(|s| s.to_string())
+                                ui.get_input().map(|s| s.to_string())
                             } else {
                                 None
                             }
@@ -241,8 +241,8 @@ impl App {
                         None
                     };
                     (response, metadata.clone())
-                },
-                Modal::Loading { .. } => return None
+                }
+                AppModal::Loading { .. } => return None
             };
 
             return if let Some(response) = modal_response {
@@ -259,11 +259,11 @@ impl App {
         }
 
         // View handlers
-        match &self.app_state {
-            AppState::InputPhone => self.phone_input_view.handle_key(key, ()).await,
-            AppState::ViewMessages { phone_number, reversed } => self.messages_view.handle_key(key, (phone_number, *reversed)).await,
-            AppState::ComposeSms { phone_number } => self.sms_input_view.handle_key(key, phone_number).await,
-            AppState::Error { message, dismissible } => self.error_view.handle_key(key, (message, *dismissible)).await
+        match &self.view_state {
+            ViewState::Phonebook => self.phone_input_view.handle_key(key, ()).await,
+            ViewState::Messages { phone_number, reversed } => self.messages_view.handle_key(key, (phone_number, *reversed)).await,
+            ViewState::Compose { phone_number } => self.sms_input_view.handle_key(key, phone_number).await,
+            ViewState::Error { message, dismissible } => self.error_view.handle_key(key, (message, *dismissible)).await
         }
     }
 
@@ -302,8 +302,8 @@ impl App {
         // Only add the message if we're viewing messages for the same phone number.
         let msg = SmsMessage::from(&sms_message);
         let mut show_notification = true;
-        match &self.app_state {
-            AppState::ViewMessages { phone_number, .. } if phone_number == sms_message.phone_number.as_str() => {
+        match &self.view_state {
+            ViewState::Messages { phone_number, .. } if phone_number == sms_message.phone_number.as_str() => {
                 self.messages_view.add_live_message(msg.clone());
                 show_notification = false;
             }
@@ -329,7 +329,7 @@ impl App {
         Ok(())
     }
 
-    fn set_modal(&mut self, modal: Option<Modal>) {
+    fn set_modal(&mut self, modal: Option<AppModal>) {
         // Allow the modal to determine if background views should render.
         self.render_views = modal.as_ref()
             .map(|m| m.should_render_views())

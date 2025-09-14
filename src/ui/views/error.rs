@@ -6,8 +6,8 @@ use ratatui::Frame;
 
 use crate::error::AppResult;
 use crate::theme::Theme;
-use crate::types::{AppState, AppAction};
-use super::{centered_rect, View};
+use crate::types::{ViewState, AppAction};
+use crate::ui::{centered_rect, ViewBase};
 
 pub struct ErrorView;
 impl ErrorView {
@@ -15,7 +15,7 @@ impl ErrorView {
         Self
     }
 }
-impl View for ErrorView {
+impl ViewBase for ErrorView {
     type Context<'ctx> = (&'ctx String, bool);
 
     async fn load<'ctx>(&mut self, _ctx: Self::Context<'ctx>) -> AppResult<()> {
@@ -25,7 +25,7 @@ impl View for ErrorView {
     async fn handle_key<'ctx>(&mut self, key: KeyEvent, ctx: Self::Context<'ctx>) -> Option<AppAction> {
         match key.code {
             KeyCode::Esc if ctx.1 => {
-                Some(AppAction::SetAppState(AppState::InputPhone))
+                Some(AppAction::SetAppState(ViewState::Phonebook))
             },
             KeyCode::Char('c') | KeyCode::Char('C') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 Some(AppAction::Exit)

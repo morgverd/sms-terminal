@@ -1,9 +1,6 @@
-pub mod error;
-pub mod messages_table;
-pub mod phone_input;
-pub mod sms_input;
+pub mod modals;
+pub mod views;
 pub mod notification;
-pub mod dialog;
 
 use crossterm::event::KeyEvent;
 use ratatui::Frame;
@@ -12,7 +9,7 @@ use crate::error::AppResult;
 use crate::theme::Theme;
 use crate::types::{AppAction, ModalMetadata};
 
-pub trait View {
+pub trait ViewBase {
     type Context<'ctx>;
 
     async fn load<'ctx>(&mut self, ctx: Self::Context<'ctx>) -> AppResult<()>;
@@ -20,7 +17,7 @@ pub trait View {
     fn render<'ctx>(&mut self, frame: &mut Frame, theme: &Theme, ctx: Self::Context<'ctx>);
 }
 
-pub trait ModalResponder {
+pub trait ModalResponderComponent {
     type Response<'r>;
 
     /// Handle a modal response with its associated metadata.
