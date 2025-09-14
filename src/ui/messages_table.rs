@@ -344,16 +344,16 @@ impl View for MessagesTableView {
                 self.reset();
                 return Some(KeyResponse::SetAppState(AppState::InputPhone));
             },
-            KeyCode::Char('c') => {
+            KeyCode::Char('c') | KeyCode::Char('C') => {
                 let state = AppState::compose_sms(ctx.0);
                 return Some(KeyResponse::SetAppState(state));
             },
-            KeyCode::Char('r') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            KeyCode::Char('r') | KeyCode::Char('R') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.reset();
                 let state = AppState::ViewMessages { phone_number: ctx.0.to_string(), reversed: !self.reversed };
                 return Some(KeyResponse::SetAppState(state));
             },
-            KeyCode::Char('r') => {
+            KeyCode::Char('r') | KeyCode::Char('R') => {
                 match self.reload(ctx.0).await {
                     Ok(()) => {},
                     Err(e) => {

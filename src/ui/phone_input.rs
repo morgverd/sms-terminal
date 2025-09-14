@@ -92,7 +92,6 @@ impl PhoneInputView {
             .unwrap_or(0)
     }
 }
-
 impl View for PhoneInputView {
     type Context<'ctx> = ();
 
@@ -120,10 +119,10 @@ impl View for PhoneInputView {
 
     async fn handle_key<'ctx>(&mut self, key: KeyEvent, _ctx: Self::Context<'ctx>) -> Option<KeyResponse> {
         match key.code {
-            KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            KeyCode::Char('c') | KeyCode::Char('C') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 return Some(KeyResponse::Quit);
             },
-            KeyCode::Char('e') | KeyCode::Char('E') => {
+            KeyCode::Char('e') | KeyCode::Char('E') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 let selected = self.selected_contact?;
                 let (phone, name) = self.recent_contacts.get(selected)?;
 
@@ -243,7 +242,7 @@ impl View for PhoneInputView {
         let help_text = if self.recent_contacts.is_empty() {
             "(Enter) confirm, (Ctrl+C) quit"
         } else if self.selected_contact.is_some() {
-            "(Enter) confirm, (E) edit name, (Ctrl+C) quit, ↑↓ select"
+            "(Enter) confirm, (Ctrl+E) edit name, (Ctrl+C) quit, ↑↓ select"
         } else {
             "(Enter) confirm, (Ctrl+C) quit, ↑↓ select contact"
         };

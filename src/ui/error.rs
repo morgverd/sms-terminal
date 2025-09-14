@@ -26,7 +26,7 @@ impl View for ErrorView {
             KeyCode::Esc if ctx.1 => {
                 Some(KeyResponse::SetAppState(AppState::InputPhone))
             },
-            KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            KeyCode::Char('c') | KeyCode::Char('C') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 Some(KeyResponse::Quit)
             },
             _ => None
