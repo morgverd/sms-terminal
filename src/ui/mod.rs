@@ -10,13 +10,13 @@ use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use crate::error::AppResult;
 use crate::theme::Theme;
-use crate::types::{KeyResponse, ModalMetadata};
+use crate::types::{AppAction, ModalMetadata};
 
 pub trait View {
     type Context<'ctx>;
 
     async fn load<'ctx>(&mut self, ctx: Self::Context<'ctx>) -> AppResult<()>;
-    async fn handle_key<'ctx>(&mut self, key: KeyEvent, ctx: Self::Context<'ctx>) -> Option<KeyResponse>;
+    async fn handle_key<'ctx>(&mut self, key: KeyEvent, ctx: Self::Context<'ctx>) -> Option<AppAction>;
     fn render<'ctx>(&mut self, frame: &mut Frame, theme: &Theme, ctx: Self::Context<'ctx>);
 }
 
@@ -30,7 +30,7 @@ pub trait ModalResponder {
         modal_id: String,
         value: Self::Response<'r>,
         metadata: ModalMetadata
-    ) -> Option<KeyResponse>;
+    ) -> Option<AppAction>;
 }
 
 pub fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {

@@ -8,10 +8,10 @@ use crossterm::event::{KeyCode, KeyEvent};
 use sms_client::types::ModemStatusUpdateState;
 use crate::error::AppResult;
 use crate::theme::Theme;
-use crate::types::{AppState, KeyResponse};
+use crate::types::{AppState, AppAction};
 use crate::ui::View;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum NotificationType {
     IncomingMessage {
         phone: String,
@@ -20,11 +20,6 @@ pub enum NotificationType {
     OnlineStatus {
         previous: ModemStatusUpdateState,
         current: ModemStatusUpdateState
-    },
-    SendFailure {
-        phone: String,
-        content: String,
-        error: Option<String>
     },
     WebSocketConnectionUpdate {
         connected: bool,
@@ -46,7 +41,6 @@ impl NotificationMessage {
     pub fn get_phone_number(&self) -> Option<String> {
         match &self.notification_type {
             NotificationType::IncomingMessage { phone, .. } => Some(phone.clone()),
-            NotificationType::SendFailure { phone, .. } => Some(phone.clone()),
             NotificationType::OnlineStatus { .. } => None,
             NotificationType::WebSocketConnectionUpdate { .. } => None,
             NotificationType::GenericMessage { .. } => None
@@ -139,12 +133,6 @@ impl NotificationView {
                     title_color: color
                 }
             },
-            NotificationType::SendFailure { .. } => NotificationStyle {
-                icon: "❌",
-                title: "Send Failed".to_string(),
-                border_color: Color::Red,
-                title_color: Color::Red
-            },
             NotificationType::WebSocketConnectionUpdate { connected, reconnect } => {
                 let (icon, title, color) = match (connected, reconnect) {
                     (true, _) => ("🔗", "WebSocket Connected", Color::Green),
@@ -174,7 +162,6 @@ impl NotificationView {
                 5 + content_lines as u16
             },
             NotificationType::OnlineStatus { .. } => 3,
-            NotificationType::SendFailure { .. } => unimplemented!(),
             NotificationType::WebSocketConnectionUpdate { .. } => 3,
             NotificationType::GenericMessage { .. } => 3
         };
@@ -258,7 +245,6 @@ impl NotificationView {
                     Span::styled(current_state.to_string(), accent_style),
                 ]));
             },
-            NotificationType::SendFailure { .. } => unimplemented!(),
             NotificationType::WebSocketConnectionUpdate { connected, reconnect } => {
                 let status_text = match (connected, reconnect) {
                     (true, _) => "WebSocket connection established",
@@ -299,7 +285,7 @@ impl View for NotificationView {
         Ok(())
     }
 
-    async fn handle_key<'ctx>(&mut self, key: KeyEvent, _ctx: Self::Context<'ctx>) -> Option<KeyResponse> {
+    async fn handle_key<'ctx>(&mut self, key: KeyEvent, _ctx: Self::Context<'ctx>) -> Option<AppAction> {
         match key.code {
             KeyCode::F(1) => {
                 self.dismiss_oldest();
@@ -314,7 +300,7 @@ impl View for NotificationView {
                     self.dismiss_all();
 
                     let state = AppState::view_messages(&*phone_number);
-                    return Some(KeyResponse::SetAppState(state));
+                    return Some(AppAction::SetAppState(state));
                 }
             },
             _ => { }

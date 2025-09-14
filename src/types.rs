@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 use ansi_escape_sequences::strip_ansi;
 use unicode_general_category::{get_general_category, GeneralCategory};
 use crate::error::AppError;
+use crate::ui::notification::NotificationType;
 
 /// A shortened version of a StoredSmsMessage that only
 /// stores the information used in messages_table.
@@ -180,10 +181,21 @@ pub enum ModalResponse {
 
 /// Returned by a View key_handler to do some app action.
 #[derive(Debug, Clone, PartialEq)]
-pub enum KeyResponse {
+pub enum AppAction {
     SetAppState(AppState),
     ShowModal(Modal),
-    Quit
+    HandleIncomingMessage(SmsStoredMessage),
+    ShowNotification(NotificationType),
+    ShowError {
+        message: String,
+        dismissible: bool
+    },
+    ShowLoadingModal(&'static str),
+    Exit,
+
+    /// Unimplemented, but left to hopefully spur me into finishing
+    /// it since it is the only thing showing warnings on compile!
+    DeliveryFailure(String)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

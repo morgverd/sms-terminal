@@ -3,9 +3,10 @@ use ratatui::layout::{Alignment, Constraint, Layout};
 use ratatui::style::Style;
 use ratatui::widgets::{Block, BorderType, Clear, Paragraph, Wrap};
 use ratatui::Frame;
+
 use crate::error::AppResult;
 use crate::theme::Theme;
-use crate::types::{AppState, KeyResponse};
+use crate::types::{AppState, AppAction};
 use super::{centered_rect, View};
 
 pub struct ErrorView;
@@ -21,13 +22,13 @@ impl View for ErrorView {
         Ok(())
     }
 
-    async fn handle_key<'ctx>(&mut self, key: KeyEvent, ctx: Self::Context<'ctx>) -> Option<KeyResponse> {
+    async fn handle_key<'ctx>(&mut self, key: KeyEvent, ctx: Self::Context<'ctx>) -> Option<AppAction> {
         match key.code {
             KeyCode::Esc if ctx.1 => {
-                Some(KeyResponse::SetAppState(AppState::InputPhone))
+                Some(AppAction::SetAppState(AppState::InputPhone))
             },
             KeyCode::Char('c') | KeyCode::Char('C') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                Some(KeyResponse::Quit)
+                Some(AppAction::Exit)
             },
             _ => None
         }

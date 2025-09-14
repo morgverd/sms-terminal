@@ -9,10 +9,10 @@ use ratatui::style::palette::tailwind;
 use sms_client::http::types::HttpOutgoingSmsMessage;
 use sms_client::types::SmsStoredMessage;
 
-use crate::app::{AppContext, LiveEvent};
+use crate::app::AppContext;
 use crate::error::AppResult;
 use crate::theme::Theme;
-use crate::types::{AppState, KeyResponse, Modal, ModalMetadata};
+use crate::types::{AppState, AppAction, Modal, ModalMetadata};
 use crate::ui::{centered_rect, ModalResponder, View};
 use crate::ui::dialog::ConfirmationDialog;
 use crate::ui::notification::NotificationType;
@@ -123,7 +123,7 @@ impl View for SmsInputView {
         Ok(())
     }
 
-    async fn handle_key<'ctx>(&mut self, key: KeyEvent, ctx: Self::Context<'ctx>) -> Option<KeyResponse> {
+    async fn handle_key<'ctx>(&mut self, key: KeyEvent, ctx: Self::Context<'ctx>) -> Option<AppAction> {
         // Ignore all keyboard input while sending the message
         if self.is_sending {
             return None;
@@ -133,7 +133,7 @@ impl View for SmsInputView {
             KeyCode::Esc => {
                 let state = AppState::view_messages(ctx);
                 self.sms_text_buffer.clear();
-                return Some(KeyResponse::SetAppState(state));
+                return Some(AppAction::SetAppState(state));
             },
             KeyCode::Char(' ') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 if !self.sms_text_buffer.is_empty() {
@@ -143,7 +143,7 @@ impl View for SmsInputView {
                     let modal = Modal::confirmation("confirm_sms_send", ConfirmationDialog::new(format!("Send SMS to {}?", ctx)))
                         .with_metadata(ModalMetadata::SendMessage(ctx.to_owned(), self.sms_text_buffer.clone()));
 
-                    return Some(KeyResponse::ShowModal(modal));
+                    return Some(AppAction::ShowModal(modal));
                 }
             },
             KeyCode::Enter => {
@@ -252,7 +252,7 @@ impl ModalResponder for SmsInputView {
         modal_id: String,
         value: Self::Response<'r>,
         metadata: ModalMetadata
-    ) -> Option<KeyResponse> {
+    ) -> Option<AppAction> {
         if !value || modal_id != "confirm_sms_send" { return None; }
 
         // Ensure it's a SendMessage metadata
@@ -264,7 +264,7 @@ impl ModalResponder for SmsInputView {
         let http = self.context.0.clone();
         let sender = self.context.1.clone();
 
-        let _ = self.context.1.send(LiveEvent::ShowLoadingModal("Sending message..."));
+        let _ = self.context.1.send(AppAction::ShowLoadingModal("Sending message..."));
         tokio::spawn(async move {
             let message = HttpOutgoingSmsMessage::simple_message(phone.clone(), content.clone());
 
@@ -273,7 +273,7 @@ impl ModalResponder for SmsInputView {
                 Ok(response) => {
                     // Push message to views to ensure its synced even if WebSocket is disabled
                     let stored_message = SmsStoredMessage::from((message, response.clone()));
-                    let _ = sender.send(LiveEvent::NewMessage(stored_message));
+                    let _ = sender.send(AppAction::HandleIncomingMessage(stored_message));
 
                     NotificationType::GenericMessage {
                         color: Color::Green,
@@ -290,8 +290,8 @@ impl ModalResponder for SmsInputView {
                 }
             };
 
-            let _ = sender.send(LiveEvent::ShowNotification(notification));
-            let _ = sender.send(LiveEvent::SetAppState(AppState::view_messages(&phone)));
+            let _ = sender.send(AppAction::ShowNotification(notification));
+            let _ = sender.send(AppAction::SetAppState(AppState::view_messages(&phone)));
         });
 
         None

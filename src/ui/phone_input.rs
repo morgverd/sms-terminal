@@ -10,7 +10,7 @@ use sms_client::http::types::{HttpPaginationOptions, LatestNumberFriendlyNamePai
 use crate::app::AppContext;
 use crate::error::AppResult;
 use crate::theme::Theme;
-use crate::types::{AppState, KeyResponse, Modal, ModalMetadata};
+use crate::types::{AppState, AppAction, Modal, ModalMetadata};
 use crate::ui::{centered_rect, ModalResponder, View};
 use crate::ui::dialog::TextInputDialog;
 
@@ -116,10 +116,10 @@ impl View for PhoneInputView {
         Ok(())
     }
 
-    async fn handle_key<'ctx>(&mut self, key: KeyEvent, _ctx: Self::Context<'ctx>) -> Option<KeyResponse> {
+    async fn handle_key<'ctx>(&mut self, key: KeyEvent, _ctx: Self::Context<'ctx>) -> Option<AppAction> {
         match key.code {
             KeyCode::Char('c') | KeyCode::Char('C') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                return Some(KeyResponse::Quit);
+                return Some(AppAction::Exit);
             },
             KeyCode::Char('e') | KeyCode::Char('E') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 let selected = self.selected_contact?;
@@ -136,7 +136,7 @@ impl View for PhoneInputView {
                 let modal = Modal::text_input("edit_friendly_name", dialog)
                     .with_metadata(ModalMetadata::phone(phone));
 
-                return Some(KeyResponse::ShowModal(modal));
+                return Some(AppAction::ShowModal(modal));
             },
             KeyCode::Enter => {
                 let current_phone = self.selected_contact
@@ -151,7 +151,7 @@ impl View for PhoneInputView {
                     let phone_number = self.input_buffer.clone();
                     self.input_buffer.clear();
 
-                    return Some(KeyResponse::SetAppState(
+                    return Some(AppAction::SetAppState(
                         AppState::view_messages(&*phone_number)
                     ));
                 }
@@ -291,7 +291,7 @@ impl ModalResponder for PhoneInputView {
         modal_id: String,
         response: Self::Response<'r>,
         metadata: ModalMetadata
-    ) -> Option<KeyResponse> {
+    ) -> Option<AppAction> {
         if modal_id != "edit_friendly_name" { return None; }
         let phone_number = metadata.as_phone()?.trim();
 

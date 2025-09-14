@@ -13,7 +13,7 @@ use unicode_width::UnicodeWidthStr;
 use crate::app::AppContext;
 use crate::error::{AppError, AppResult};
 use crate::theme::Theme;
-use crate::types::{AppState, KeyResponse, SmsMessage};
+use crate::types::{AppState, AppAction, SmsMessage};
 use crate::ui::View;
 
 const INFO_TEXT: [&str; 2] = [
@@ -337,33 +337,33 @@ impl View for MessagesTableView {
         self.reload(ctx.0).await
     }
 
-    async fn handle_key<'ctx>(&mut self, key: KeyEvent, ctx: Self::Context<'ctx>) -> Option<KeyResponse> {
+    async fn handle_key<'ctx>(&mut self, key: KeyEvent, ctx: Self::Context<'ctx>) -> Option<AppAction> {
         match key.code {
             KeyCode::Esc => {
                 self.reset();
-                return Some(KeyResponse::SetAppState(AppState::InputPhone));
+                return Some(AppAction::SetAppState(AppState::InputPhone));
             },
             KeyCode::Char('c') | KeyCode::Char('C') => {
                 let state = AppState::compose_sms(ctx.0);
-                return Some(KeyResponse::SetAppState(state));
+                return Some(AppAction::SetAppState(state));
             },
             KeyCode::Char('r') | KeyCode::Char('R') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.reset();
                 let state = AppState::ViewMessages { phone_number: ctx.0.to_string(), reversed: !self.reversed };
-                return Some(KeyResponse::SetAppState(state));
+                return Some(AppAction::SetAppState(state));
             },
             KeyCode::Char('r') | KeyCode::Char('R') => {
                 match self.reload(ctx.0).await {
                     Ok(()) => {},
                     Err(e) => {
-                        return Some(KeyResponse::SetAppState(AppState::from(e)));
+                        return Some(AppAction::SetAppState(AppState::from(e)));
                     }
                 }
             },
             KeyCode::Down => {
                 self.next_row().await;
                 if let Err(e) = self.check_load_more(ctx.0).await {
-                    return Some(KeyResponse::SetAppState(AppState::from(e)));
+                    return Some(AppAction::SetAppState(AppState::from(e)));
                 }
             },
             KeyCode::Up => {

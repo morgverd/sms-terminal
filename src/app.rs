@@ -13,7 +13,7 @@ use tokio::sync::mpsc;
 use crate::TerminalConfig;
 use crate::error::{AppError, AppResult};
 use crate::theme::ThemeManager;
-use crate::types::{AppState, KeyDebouncer, KeyPress, KeyResponse, SmsMessage, DEBOUNCE_DURATION, ModalResponse, Modal, ModalMetadata};
+use crate::types::{AppState, KeyDebouncer, KeyPress, AppAction, SmsMessage, DEBOUNCE_DURATION, ModalResponse, Modal, ModalMetadata};
 use crate::ui::dialog::Dialog;
 use crate::ui::error::ErrorView;
 use crate::ui::messages_table::MessagesTableView;
@@ -22,20 +22,7 @@ use crate::ui::phone_input::PhoneInputView;
 use crate::ui::sms_input::SmsInputView;
 use crate::ui::{ModalResponder, View};
 
-#[derive(Debug, Clone)]
-pub enum LiveEvent {
-    NewMessage(SmsStoredMessage),
-    SendFailure(String),
-    ShowNotification(NotificationType),
-    ShowError {
-        message: String,
-        dismissible: bool
-    },
-    ShowLoadingModal(&'static str),
-    SetAppState(AppState)
-}
-
-pub type AppContext = (Arc<HttpClient>, mpsc::UnboundedSender<LiveEvent>);
+pub type AppContext = (Arc<HttpClient>, mpsc::UnboundedSender<AppAction>);
 
 pub struct App {
     app_state: AppState,
@@ -47,8 +34,8 @@ pub struct App {
     sms_input_view: SmsInputView,
     error_view: ErrorView,
     notification_view: NotificationView,
-    message_receiver: mpsc::UnboundedReceiver<LiveEvent>,
-    message_sender: mpsc::UnboundedSender<LiveEvent>,
+    message_receiver: mpsc::UnboundedReceiver<AppAction>,
+    message_sender: mpsc::UnboundedSender<AppAction>,
     sms_client: Client,
     websocket_enabled: bool
 }
@@ -96,7 +83,9 @@ impl App {
 
         loop {
             terminal.draw(|frame| self.render(frame))?;
-            self.process_live_events().await?;
+            while let Ok(action) = self.message_receiver.try_recv() {
+                self.handle_app_action(action).await;
+            }
 
             if event::poll(Duration::from_millis(100))? {
                 if let Event::Key(key) = event::read()? {
@@ -106,8 +95,8 @@ impl App {
 
                     // Transition the state, handling error format easily.
                     // This is also the only direct way to quit, by returning true in the key response.
-                    if let Some(response) = self.get_key_response(key).await {
-                        if self.handle_key_response(response).await {
+                    if let Some(action) = self.get_key_action(key).await {
+                        if self.handle_app_action(action).await {
                             return Ok(());
                         }
                     }
@@ -165,18 +154,46 @@ impl App {
         self.key_debouncer.reset();
     }
 
-    async fn handle_key_response(&mut self, response: KeyResponse) -> bool {
+    async fn handle_app_action(&mut self, response: AppAction) -> bool {
         match response {
-            KeyResponse::SetAppState(state) => self.transition_state(state).await,
-            KeyResponse::ShowModal(modal) => {
+            AppAction::SetAppState(new_state) => {
+                if matches!(self.current_modal, Some(Modal::Loading { .. })) {
+                    self.current_modal = None;
+                }
+                self.transition_state(new_state).await
+            }
+            AppAction::ShowModal(modal) => {
                 self.current_modal = Some(modal);
             },
-            KeyResponse::Quit => return true
+            AppAction::Exit => return true,
+            AppAction::HandleIncomingMessage(sms_message) => {
+                if let Err(e) = self.handle_new_message(sms_message).await {
+                    self.transition_state(AppState::from(e)).await;
+                }
+            },
+            AppAction::DeliveryFailure(_) => unimplemented!("Oops!"),
+            AppAction::ShowNotification(notification) => self.notification_view.add_notification(notification),
+            AppAction::ShowError { message, dismissible } => {
+
+                // If another error is being displayed, only overwrite it if
+                // that one is dismissable but this one isn't. Otherwise, ignore.
+                let allowed = match &self.app_state {
+                    AppState::Error { dismissible: existing_dismissable, .. } => {
+                        *existing_dismissable || !dismissible
+                    },
+                    _ => true
+                };
+                if allowed {
+                    self.transition_state(AppState::Error { message, dismissible }).await;
+                }
+            },
+            AppAction::ShowLoadingModal(message) => self.current_modal = Some(Modal::create_loading(message))
         };
+
         false
     }
 
-    async fn get_key_response(&mut self, key: KeyEvent) -> Option<KeyResponse> {
+    async fn get_key_action(&mut self, key: KeyEvent) -> Option<AppAction> {
         // Debounce all key presses.
         let key_press = KeyPress::from(key);
         if !self.key_debouncer.should_process(&key_press) {
@@ -225,12 +242,12 @@ impl App {
                 Modal::Loading { .. } => return None
             };
 
-            if let Some(response) = modal_response {
-                let key_response = self.handle_modal_response(response, metadata).await;
+            return if let Some(response) = modal_response {
                 self.current_modal = None;
-                return key_response;
-            }
-            return None;
+                self.handle_modal_response(response, metadata).await
+            } else {
+                None
+            };
         }
 
         // Handle notification interactions
@@ -247,7 +264,7 @@ impl App {
         }
     }
 
-    async fn handle_modal_response(&mut self, response: ModalResponse, metadata: ModalMetadata) -> Option<KeyResponse> {
+    async fn handle_modal_response(&mut self, response: ModalResponse, metadata: ModalMetadata) -> Option<AppAction> {
         match response {
             ModalResponse::Confirmation { modal_id, confirmed } => {
                 if !confirmed {
@@ -314,15 +331,15 @@ impl App {
         self.sms_client.on_message_simple(move |message| {
             match message {
                 WebsocketMessage::IncomingMessage(sms) | WebsocketMessage::OutgoingMessage(sms) => {
-                    let _ = ws_sender.send(LiveEvent::NewMessage(sms));
+                    let _ = ws_sender.send(AppAction::HandleIncomingMessage(sms));
                 },
                 WebsocketMessage::ModemStatusUpdate { previous, current } => {
                     let notification = NotificationType::OnlineStatus { previous, current };
-                    let _ = ws_sender.send(LiveEvent::ShowNotification(notification));
+                    let _ = ws_sender.send(AppAction::ShowNotification(notification));
                 },
                 WebsocketMessage::WebsocketConnectionUpdate { connected, reconnect } => {
                     let notification = NotificationType::WebSocketConnectionUpdate { connected, reconnect };
-                    let _ = ws_sender.send(LiveEvent::ShowNotification(notification));
+                    let _ = ws_sender.send(AppAction::ShowNotification(notification));
                 },
                 _ => { }
             }
@@ -332,46 +349,14 @@ impl App {
         let client = self.sms_client.clone();
         let task_sender = self.message_sender.clone();
         tokio::spawn(async move {
+
             // Handle early termination or errors on starting.
             let (message, dismissible) = match client.start_blocking_websocket().await {
                 Ok(_) => ("The WebSocket has been terminated!".to_string(), true),
                 Err(e) => (e.to_string(), false)
             };
-            let _ = task_sender.send(LiveEvent::ShowError { message, dismissible });
+            let _ = task_sender.send(AppAction::ShowError { message, dismissible });
         });
-
-        Ok(())
-    }
-
-    async fn process_live_events(&mut self) -> AppResult<()> {
-        while let Ok(msg) = self.message_receiver.try_recv() {
-            match msg {
-                LiveEvent::NewMessage(sms_message) => self.handle_new_message(sms_message).await?,
-                LiveEvent::SendFailure(_) => unimplemented!("Oops!"),
-                LiveEvent::ShowNotification(notification) => self.notification_view.add_notification(notification),
-                LiveEvent::ShowError { message, dismissible } => {
-
-                    // If another error is being displayed, only overwrite it if
-                    // that one is dismissable but this one isn't. Otherwise, ignore.
-                    let allowed = match &self.app_state {
-                        AppState::Error { dismissible: existing_dismissable, .. } => {
-                            *existing_dismissable || !dismissible
-                        },
-                        _ => true
-                    };
-                    if allowed {
-                        self.transition_state(AppState::Error { message, dismissible }).await;
-                    }
-                },
-                LiveEvent::ShowLoadingModal(message) => self.current_modal = Some(Modal::create_loading(message)),
-                LiveEvent::SetAppState(new_state) => {
-                    if matches!(self.current_modal, Some(Modal::Loading { .. })) {
-                        self.current_modal = None;
-                    }
-                    self.transition_state(new_state).await
-                }
-            }
-        }
 
         Ok(())
     }
