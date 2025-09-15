@@ -245,9 +245,9 @@ impl ViewBase for PhonebookView {
         let help_text = if self.recent_contacts.is_empty() {
             "(Enter) confirm, (Ctrl+C) quit"
         } else if self.selected_contact.is_some() {
-            "(Enter) confirm, (Ctrl+E) edit name, (Ctrl+C) quit, ↑↓ select"
+            "(Enter) confirm, ↑↓ select, (Ctrl+E) edit name, (Ctrl+C) quit"
         } else {
-            "(Enter) confirm, (Ctrl+C) quit, ↑↓ select contact"
+            "(Enter) confirm, ↑↓ select contact, (Ctrl+C) quit"
         };
 
         let help = Paragraph::new(help_text)

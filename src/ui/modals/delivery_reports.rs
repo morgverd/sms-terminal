@@ -156,7 +156,7 @@ impl DeliveryReportsModal {
 impl ModalComponent for DeliveryReportsModal {
     fn handle_key(&mut self, key: KeyEvent) -> Option<ModalResponse> {
         match key.code {
-            KeyCode::Enter | KeyCode::Char(' ') => Some(ModalResponse::Dismissed),
+            KeyCode::Esc => Some(ModalResponse::Dismissed),
             _ => None,
         }
     }
@@ -177,8 +177,8 @@ impl ModalComponent for DeliveryReportsModal {
                     .alignment(Alignment::Left);
                 frame.render_widget(timeline_paragraph, sections[1]);
 
-                let help = Paragraph::new("(Enter/Space) close")
-                    .style(theme.secondary_style())
+                let help = Paragraph::new("(Esc) close")
+                    .style(theme.primary_style())
                     .alignment(Alignment::Center);
                 frame.render_widget(help, sections[2]);
             },
@@ -196,6 +196,7 @@ impl ModalComponent for DeliveryReportsModal {
         let message = self.message.clone();
         ModalLoadBehaviour::Function(Box::new(move |ctx| {
             tokio::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_secs(3)).await; // TODO: REMOVE THIS DEMO DELAY!
 
                 // Get all delivery reports for target message.
                 let pagination = HttpPaginationOptions::default().with_limit(Self::MAX_REPORTS as u64);
