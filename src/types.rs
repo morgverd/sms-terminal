@@ -1,5 +1,5 @@
 use std::fmt::Display;
-use chrono::{Local, TimeZone};
+use chrono::{DateTime, Local, NaiveDateTime, TimeZone};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use sms_client::types::SmsStoredMessage;
 use std::time::{Duration, Instant};
@@ -46,12 +46,10 @@ pub enum ViewState {
     }
 }
 impl ViewState {
+
+    /// Create ViewState::ViewMessages with a default reversed state.
     pub fn view_messages(phone_number: &str) -> Self {
         Self::Messages { phone_number: phone_number.to_string(), reversed: false }
-    }
-
-    pub fn compose(phone_number: &str) -> Self {
-        Self::Compose { phone_number: phone_number.to_string() }
     }
 }
 impl From<AppError> for ViewState {
@@ -75,16 +73,28 @@ impl Display for ViewState {
 
 /// A shortened version of a StoredSmsMessage that only
 /// stores the information used in messages_table.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct SmsMessage {
-    pub id: String,
+    pub identifier: String,
     pub direction: String,
     pub timestamp: String,
-    pub content: String
+    pub content: String,
+
+    /// Not displayed directly in table, but used for message identification.
+    pub is_outgoing: bool,
+    pub message_id: i64
 }
 impl SmsMessage {
     pub fn ref_array(&self) -> [&String; 4] {
-        [&self.id, &self.direction, &self.timestamp, &self.content]
+        [&self.identifier, &self.direction, &self.timestamp, &self.content]
+    }
+
+    /// Parse DD/MM/YY HH:MM format into Local DateTime.
+    pub fn parse_message_timestamp(&self) -> Option<DateTime<Local>> {
+        match NaiveDateTime::parse_from_str(&self.timestamp, "%d/%m/%y %H:%M") {
+            Ok(naive_dt) => Local.from_local_datetime(&naive_dt).single(),
+            Err(_) => None
+        }
     }
 }
 impl From<&SmsStoredMessage> for SmsMessage {
@@ -97,7 +107,7 @@ impl From<&SmsStoredMessage> for SmsMessage {
             .unwrap_or_else(|| Local::now());
 
         Self {
-            id: value.message_id.to_string(),
+            identifier: value.message_id.to_string(),
             direction: if value.is_outgoing { "← OUT" } else { "→ IN" }.to_string(),
             timestamp: dt.format("%d/%m/%y %H:%M").to_string(),
 
@@ -114,6 +124,9 @@ impl From<&SmsStoredMessage> for SmsMessage {
                     )
                 )
                 .collect(),
+
+            is_outgoing: value.is_outgoing,
+            message_id: value.message_id
         }
     }
 }

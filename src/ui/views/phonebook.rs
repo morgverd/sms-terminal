@@ -41,6 +41,7 @@ impl PhonebookView {
             let item = self.recent_contacts.remove(pos);
             self.recent_contacts.insert(0, item);
         } else {
+
             // Get any existing friendly name
             let friendly_name = self.context.0.get_friendly_name(&phone_number)
                 .await
@@ -136,7 +137,7 @@ impl ViewBase for PhonebookView {
 
                 // Include selected phone number in modal metadata for the response!
                 let modal = AppModal::new("edit_friendly_name", ui)
-                    .with_metadata(ModalMetadata::phone(phone));
+                    .with_metadata(ModalMetadata::PhoneNumber(phone.clone()));
 
                 return Some(AppAction::ShowModal(modal));
             },
@@ -289,7 +290,10 @@ impl ViewBase for PhonebookView {
 impl ModalResponderComponent for PhonebookView {
 
     fn handle_modal_response(&mut self, response: ModalResponse, metadata: ModalMetadata) -> Option<AppAction> {
-        let phone_number = metadata.as_phone()?.trim();
+        let phone_number = match metadata {
+            ModalMetadata::PhoneNumber(phone_number) => phone_number,
+            _ => return None
+        };
         let friendly_name = match response {
             ModalResponse::TextInput(friendly_name) => friendly_name?,
             _ => return None
@@ -316,7 +320,7 @@ impl ModalResponderComponent for PhonebookView {
 
         // Update local cache
         if let Some(contact) = self.recent_contacts.iter_mut()
-            .find(|(p, _)| p == phone_number) {
+            .find(|(p, _)| *p == phone_number) {
             contact.1 = Some(friendly_name.to_string());
         }
 

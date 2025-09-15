@@ -12,7 +12,7 @@ use tokio::sync::mpsc;
 
 use crate::TerminalConfig;
 use crate::error::{AppError, AppResult};
-use crate::modals::AppModal;
+use crate::modals::{AppModal, ModalLoadBehaviour, ModalResponse};
 use crate::theme::ThemeManager;
 use crate::types::{ViewState, KeyDebouncer, KeyPress, AppAction, SmsMessage, DEBOUNCE_DURATION};
 use crate::ui::{ModalResponderComponent, ViewBase};
@@ -22,7 +22,8 @@ use crate::ui::views::messages::MessagesView;
 use crate::ui::views::phonebook::PhonebookView;
 use crate::ui::views::compose::ComposeView;
 
-pub type AppContext = (Arc<HttpClient>, mpsc::UnboundedSender<AppAction>);
+pub type AppActionSender = mpsc::UnboundedSender<AppAction>;
+pub type AppContext = (Arc<HttpClient>, AppActionSender);
 
 pub struct App {
     view_state: ViewState,
@@ -81,7 +82,7 @@ impl App {
         };
 
         // Transition into starting state (which may be an error!)
-        self.transition_state(ViewState::Phonebook).await;
+        self.transition_view(ViewState::Phonebook).await;
 
         loop {
             terminal.draw(|frame| self.render(frame))?;
@@ -129,8 +130,8 @@ impl App {
         self.notification_view.render(frame, theme, ());
     }
 
-    async fn transition_state(&mut self, new_state: ViewState) {
-        let result = match &new_state {
+    async fn transition_view(&mut self, view_state: ViewState) {
+        let result = match &view_state {
             ViewState::Phonebook => self.phonebook_view.load(()).await,
             ViewState::Messages { phone_number, reversed } => self.messages_view.load((phone_number, *reversed)).await,
             ViewState::Compose { phone_number } => self.compose_view.load(phone_number).await,
@@ -142,7 +143,7 @@ impl App {
         let actual_state = if let Err(e) = result {
             ViewState::from(e)
         } else {
-            new_state
+            view_state
         };
 
         let _ = crossterm::execute!(
@@ -154,8 +155,8 @@ impl App {
         self.key_debouncer.reset();
     }
 
-    async fn handle_app_action(&mut self, response: AppAction) -> bool {
-        match response {
+    async fn handle_app_action(&mut self, action: AppAction) -> bool {
+        match action {
             AppAction::SetViewState { state, dismiss_modal } => {
 
                 // Allow the state change to dismiss the current modal.
@@ -163,7 +164,7 @@ impl App {
                 if self.current_modal.is_some() && dismiss_modal {
                     self.set_modal(None);
                 }
-                self.transition_state(state).await;
+                self.transition_view(state).await;
             },
             AppAction::ShowModal(modal) => {
                 self.set_modal(Some(modal));
@@ -171,7 +172,7 @@ impl App {
             AppAction::Exit => return true,
             AppAction::HandleIncomingMessage(sms_message) => {
                 if let Err(e) = self.handle_new_message(sms_message).await {
-                    self.transition_state(ViewState::from(e)).await;
+                    self.transition_view(ViewState::from(e)).await;
                 }
             },
             AppAction::DeliveryFailure(_) => unimplemented!("Oops!"),
@@ -187,7 +188,7 @@ impl App {
                     _ => true
                 };
                 if allowed {
-                    self.transition_state(ViewState::Error { message, dismissible }).await;
+                    self.transition_view(ViewState::Error { message, dismissible }).await;
                 }
             }
         };
@@ -222,10 +223,18 @@ impl App {
             let response = match modal.id.as_str() {
                 "confirm_sms_send" => self.compose_view.handle_modal_response(response, modal.metadata.clone()),
                 "edit_friendly_name" => self.phonebook_view.handle_modal_response(response, modal.metadata.clone()),
-                id => Some(AppAction::ShowError {
-                    message: format!("Got unknown modal response ID {}!", id),
-                    dismissible: true
-                })
+                id => {
+
+                    // Ignore this issue if it's just a dismissal, since there isn't really
+                    // anything to process so it doesn't matter if the modal has no handler
+                    match response {
+                        ModalResponse::Dismissed => None,
+                        _ => Some(AppAction::ShowError {
+                            message: format!("Got unknown modal response ID '{}'!", id),
+                            dismissible: true
+                        })
+                    }
+                }
             };
 
             // Clear current modal before submitting response
@@ -284,6 +293,24 @@ impl App {
         self.render_views = modal.as_ref()
             .map(|m| m.should_render_views())
             .unwrap_or(true);
+
+        if let Some(ref modal) = modal {
+
+            // Call modal loader, which can take the current AppContext for async loading.
+            // This is to ensure that the render + async loop is never blocked.
+            match modal.load() {
+                ModalLoadBehaviour::Function(cb) => {
+                    let (action, should_block) = cb((self.sms_client.http_arc(), self.message_sender.clone()));
+                    if let Some(action) = action {
+                        let _ = self.message_sender.send(action);
+                    }
+                    if should_block {
+                        return;
+                    }
+                },
+                _ => { }
+            }
+        }
 
         self.current_modal = modal;
     }

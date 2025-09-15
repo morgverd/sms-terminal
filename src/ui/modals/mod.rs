@@ -5,17 +5,29 @@ use ratatui::prelude::{Line, Modifier, Span, Style};
 use ratatui::widgets::{Block, BorderType, Clear, Paragraph};
 
 use crate::theme::Theme;
-use crate::modals::ModalResponse;
+use crate::modals::{ModalLoadBehaviour, ModalResponse};
 use crate::ui::centered_rect;
 
 pub mod confirmation;
 pub mod text_input;
 pub mod loading;
+pub mod delivery_reports;
 
 pub trait ModalComponent: std::fmt::Debug + Send + Sync {
 
+    /// Handle modal incoming key, and return some response that is pushed back
+    /// to the View if it implements ModalResponderComponent. If None is returned,
+    /// the input is entirely ignored (by both the Modal and active View).
     fn handle_key(&mut self, key: KeyEvent) -> Option<ModalResponse>;
+
+    /// Render the modal, called per frame.
     fn render(&mut self, frame: &mut Frame, theme: &Theme);
+
+    /// Get the modals load behaviour, called once the modal is being set as active.
+    /// This can be used to block the modal from loading, or return some AppAction.
+    fn load(&self) -> ModalLoadBehaviour {
+        ModalLoadBehaviour::None
+    }
 
     /// Should views from AppState still be rendered whilst Modal is active.
     fn should_render_views(&self) -> bool {
@@ -26,6 +38,7 @@ pub trait ModalComponent: std::fmt::Debug + Send + Sync {
 pub struct ModalUtils;
 impl ModalUtils {
 
+    /// Render the base frame, used by all Modals.
     pub fn render_base<F>(
         frame: &mut Frame,
         title: &str,
@@ -52,6 +65,7 @@ impl ModalUtils {
         content(frame, inner, theme);
     }
 
+    /// Render modal buttons with a selection index.
     fn render_buttons(
         frame: &mut Frame,
         area: Rect,
@@ -96,12 +110,14 @@ impl ModalButtonComponent {
         }
     }
 
+    /// Allow Modals to apply theme styles.
     pub fn with_styles(mut self, normal: Style, focused: Style) -> Self {
         self.style_normal = normal;
         self.style_focused = focused;
         self
     }
 
+    /// Get the appropriate theme style depending on if it's focused.
     pub fn render_style(&self, focused: bool) -> Style {
         if focused {
             self.style_focused
@@ -111,7 +127,7 @@ impl ModalButtonComponent {
     }
 
 
-    /// Create styled buttons for OK/Cancel pattern
+    /// Create styled buttons for OK/Cancel pattern.
     fn create_ok_cancel_buttons(button_styles: &ModalButtonComponentStyles) -> [ModalButtonComponent; 2] {
         [
             ModalButtonComponent::new("OK").with_styles(
@@ -125,7 +141,7 @@ impl ModalButtonComponent {
         ]
     }
 
-    /// Create styled buttons for Yes/No pattern
+    /// Create styled buttons for Yes/No pattern.
     fn create_yes_no_buttons(button_styles: &ModalButtonComponentStyles) -> [ModalButtonComponent; 2] {
         [
             ModalButtonComponent::new("Yes").with_styles(
