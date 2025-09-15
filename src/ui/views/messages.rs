@@ -12,14 +12,11 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::app::AppContext;
 use crate::error::{AppError, AppResult};
+use crate::modals::AppModal;
 use crate::theme::Theme;
 use crate::types::{ViewState, AppAction, SmsMessage};
+use crate::ui::modals::delivery_reports::DeliveryReportsModal;
 use crate::ui::ViewBase;
-
-const INFO_TEXT: [&str; 2] = [
-    "(↑/↓) navigate | (←/→) columns | (Ctrl+R) order",
-    "(Esc) back | (r) reload | (c) compose SMS"
-];
 
 // Pages of 20 items, load next (max-5)
 const ITEM_HEIGHT: usize = 4;
@@ -36,7 +33,8 @@ pub struct MessagesView {
     has_more: bool,
     reversed: bool,
     current_offset: u64,
-    total_messages: usize
+    total_messages: usize,
+    is_selected_outgoing: bool
 }
 impl MessagesView {
     pub fn with_context(context: AppContext) -> Self {
@@ -50,12 +48,13 @@ impl MessagesView {
             has_more: true,
             reversed: false,
             current_offset: 0,
-            total_messages: 0
+            total_messages: 0,
+            is_selected_outgoing: false
         }
     }
 
     pub fn add_live_message(&mut self, message: SmsMessage) {
-        if self.messages.iter().any(|m| m.id == message.id) {
+        if self.messages.iter().any(|m| m.message_id == message.message_id) {
             return;
         }
 
@@ -68,6 +67,7 @@ impl MessagesView {
     fn reset(&mut self) {
         self.current_offset = 0;
         self.has_more = true;
+        self.is_selected_outgoing = false;
         self.messages.clear();
         self.state = TableState::default();
     }
@@ -126,7 +126,7 @@ impl MessagesView {
     fn update_constraints(&mut self) {
         let id_len = self.messages
             .iter()
-            .map(|m| m.id.width())
+            .map(|m| m.identifier.width())
             .max()
             .unwrap_or(10)
             .min(20);
@@ -166,7 +166,7 @@ impl MessagesView {
         Ok(())
     }
 
-    async fn next_row(&mut self) {
+    fn next_row(&mut self) {
         if self.messages.is_empty() {
             return;
         }
@@ -177,10 +177,11 @@ impl MessagesView {
         if next != current {
             self.state.select(Some(next));
             self.scroll_state = self.scroll_state.position(next * ITEM_HEIGHT);
+            self.update_selection(next);
         }
     }
 
-    async fn previous_row(&mut self) {
+    fn previous_row(&mut self) {
         if self.messages.is_empty() {
             return;
         }
@@ -191,7 +192,14 @@ impl MessagesView {
         if previous != current {
             self.state.select(Some(previous));
             self.scroll_state = self.scroll_state.position(previous * ITEM_HEIGHT);
+            self.update_selection(previous);
         }
+    }
+
+    fn update_selection(&mut self, idx: usize) {
+        self.is_selected_outgoing = self.messages.get(idx)
+            .map(|m| m.is_outgoing)
+            .unwrap_or(false);
     }
 
     fn next_column(&mut self) {
@@ -285,8 +293,12 @@ impl MessagesView {
 
     fn render_footer(&self, frame: &mut Frame, area: Rect, phone_number: &str, theme: &Theme) {
         let mut footer_lines = vec![
-            INFO_TEXT[0].to_string(),
-            INFO_TEXT[1].to_string()
+            "(↑/↓) navigate | (←/→) columns | (Ctrl+R) order".to_string(),
+            if self.is_selected_outgoing {
+                "(Esc) back | (r) reload | (c) compose SMS | (m) delivery reports".to_string()
+            } else {
+                "(Esc) back | (r) reload | (c) compose SMS".to_string()
+            }
         ];
 
         // Add sort order indicator
@@ -295,7 +307,6 @@ impl MessagesView {
         } else {
             "↑ Newest First"
         };
-
         if !self.messages.is_empty() {
             let status = if self.is_loading {
                 "⟳ Loading more..."
@@ -334,7 +345,9 @@ impl ViewBase for MessagesView {
 
     async fn load<'ctx>(&mut self, ctx: Self::Context<'ctx>) -> AppResult<()> {
         self.reversed = ctx.1;
-        self.reload(ctx.0).await
+        self.reload(ctx.0).await?;
+        self.is_selected_outgoing = self.messages.first().map(|m| m.is_outgoing).unwrap_or(false);
+        Ok(())
     }
 
     async fn handle_key<'ctx>(&mut self, key: KeyEvent, ctx: Self::Context<'ctx>) -> Option<AppAction> {
@@ -344,7 +357,9 @@ impl ViewBase for MessagesView {
                 Some(ViewState::Phonebook)
             },
             KeyCode::Char('c') | KeyCode::Char('C') => {
-                Some(ViewState::compose(ctx.0))
+                Some(ViewState::Compose {
+                    phone_number: ctx.0.to_string()
+                })
             },
             KeyCode::Char('r') | KeyCode::Char('R') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.reset();
@@ -356,15 +371,27 @@ impl ViewBase for MessagesView {
                     Err(e) => Some(ViewState::from(e))
                 }
             },
+            KeyCode::Char('m') | KeyCode::Char('M') => {
+                let message = self.messages.get(
+                    self.state.selected()?
+                )?;
+                if !message.is_outgoing {
+                    return None;
+                }
+
+                // Show uninitialized delivery report, which will trigger it's loading.
+                let modal = AppModal::new("delivery_reports", DeliveryReportsModal::new(message.clone()));
+                return Some(AppAction::ShowModal(modal))
+            },
             KeyCode::Down => {
-                self.next_row().await;
+                self.next_row();
                 match self.check_load_more(ctx.0).await {
                     Ok(()) => None,
                     Err(e) => Some(ViewState::from(e))
                 }
             },
             KeyCode::Up => {
-                self.previous_row().await;
+                self.previous_row();
                 None
             },
             KeyCode::Right => {
