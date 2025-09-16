@@ -54,22 +54,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gcc-mingw-w64
 
-      - name: Configure cross-compilation
-        run: |
-          mkdir -p .cargo
-          cat >> .cargo/config.toml << EOF
-          [target.aarch64-unknown-linux-gnu]
-          linker = "aarch64-linux-gnu-gcc"
-          
-          [target.i686-pc-windows-gnu]
-          linker = "i686-w64-mingw32-gcc"
-          ar = "i686-w64-mingw32-ar"
-          
-          [target.x86_64-pc-windows-gnu]
-          linker = "x86_64-w64-mingw32-gcc"
-          ar = "x86_64-w64-mingw32-ar"
-          EOF
-
       - name: Cache cargo registry
         uses: actions/cache@v3
         with:
