@@ -21,6 +21,7 @@ use crate::ui::views::error::ErrorView;
 use crate::ui::views::messages::MessagesView;
 use crate::ui::views::phonebook::PhonebookView;
 use crate::ui::views::compose::ComposeView;
+use crate::ui::views::device_info::DeviceInfoView;
 
 pub type AppActionSender = mpsc::UnboundedSender<AppAction>;
 pub type AppContext = (Arc<HttpClient>, AppActionSender);
@@ -31,6 +32,7 @@ pub struct App {
     key_debouncer: KeyDebouncer,
     theme_manager: ThemeManager,
     phonebook_view: PhonebookView,
+    device_info_view: DeviceInfoView,
     messages_view: MessagesView,
     compose_view: ComposeView,
     error_view: ErrorView,
@@ -55,6 +57,7 @@ impl App {
             key_debouncer: KeyDebouncer::new(DEBOUNCE_DURATION),
             theme_manager: ThemeManager::with_preset(config.theme),
             phonebook_view: PhonebookView::with_context(context.clone()),
+            device_info_view: DeviceInfoView::with_context(context.clone()),
             messages_view: MessagesView::with_context(context.clone()),
             compose_view: ComposeView::with_context(context),
             error_view: ErrorView::new(),
@@ -82,7 +85,7 @@ impl App {
         };
 
         // Transition into starting state (which may be an error!)
-        self.transition_view(ViewState::Phonebook).await;
+        self.transition_view(ViewState::DeviceInfo).await;
 
         loop {
             terminal.draw(|frame| self.render(frame))?;
@@ -115,6 +118,7 @@ impl App {
         if self.render_views {
             match &self.view_state {
                 ViewState::Phonebook => self.phonebook_view.render(frame, theme, ()),
+                ViewState::DeviceInfo => self.device_info_view.render(frame, theme, ()),
                 ViewState::Messages { phone_number, reversed } => self.messages_view.render(frame, theme, (phone_number, *reversed)),
                 ViewState::Compose { phone_number } => self.compose_view.render(frame, theme, phone_number),
                 ViewState::Error { message, dismissible } => self.error_view.render(frame, theme, (message, *dismissible))
@@ -133,6 +137,7 @@ impl App {
     async fn transition_view(&mut self, view_state: ViewState) {
         let result = match &view_state {
             ViewState::Phonebook => self.phonebook_view.load(()).await,
+            ViewState::DeviceInfo => self.device_info_view.load(()).await,
             ViewState::Messages { phone_number, reversed } => self.messages_view.load((phone_number, *reversed)).await,
             ViewState::Compose { phone_number } => self.compose_view.load(phone_number).await,
             _ => Ok(())
@@ -251,6 +256,7 @@ impl App {
         // View handlers
         match &self.view_state {
             ViewState::Phonebook => self.phonebook_view.handle_key(key, ()).await,
+            ViewState::DeviceInfo => self.device_info_view.handle_key(key, ()).await,
             ViewState::Messages { phone_number, reversed } => self.messages_view.handle_key(key, (phone_number, *reversed)).await,
             ViewState::Compose { phone_number } => self.compose_view.handle_key(key, phone_number).await,
             ViewState::Error { message, dismissible } => self.error_view.handle_key(key, (message, *dismissible)).await

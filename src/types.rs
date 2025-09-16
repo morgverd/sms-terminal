@@ -33,6 +33,7 @@ pub enum AppAction {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ViewState {
     Phonebook,
+    DeviceInfo,
     Messages {
         phone_number: String,
         reversed: bool
@@ -64,6 +65,7 @@ impl Display for ViewState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ViewState::Phonebook => write!(f, "Phonebook"),
+            ViewState::DeviceInfo => write!(f, "Device Info"),
             ViewState::Messages { phone_number, .. } => write!(f, "Viewing Messages ｜ {}", phone_number),
             ViewState::Compose { phone_number, .. } => write!(f, "Composing Message ｜ {}", phone_number),
             ViewState::Error { dismissible, .. } => write!(f, "{}", if *dismissible { "Fatal Error" } else { "Error" })

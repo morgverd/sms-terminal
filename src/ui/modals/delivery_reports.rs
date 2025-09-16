@@ -167,10 +167,10 @@ impl ModalComponent for DeliveryReportsModal {
             "Delivery Reports",
             |frame, area, theme| {
                 let sections = Layout::vertical([
-                    Constraint::Length(1),                        // Top padding
+                    Constraint::Length(1),                         // Top padding
                     Constraint::Min(Self::MAX_REPORTS as u16 * 2), // Timeline
-                    Constraint::Min(1),                           // Middle padding
-                    Constraint::Length(1),                        // Help text
+                    Constraint::Min(1),                            // Middle padding
+                    Constraint::Length(1),                         // Help text
                 ]).split(area);
 
                 let timeline_paragraph = Paragraph::new(self.render_timeline(theme))
@@ -183,7 +183,7 @@ impl ModalComponent for DeliveryReportsModal {
                 frame.render_widget(help, sections[2]);
             },
             theme,
-            40,
+            50,
             (Self::MAX_REPORTS as u16) + 10,
         );
     }
@@ -196,7 +196,6 @@ impl ModalComponent for DeliveryReportsModal {
         let message = self.message.clone();
         ModalLoadBehaviour::Function(Box::new(move |ctx| {
             tokio::spawn(async move {
-                tokio::time::sleep(std::time::Duration::from_secs(3)).await; // TODO: REMOVE THIS DEMO DELAY!
 
                 // Get all delivery reports for target message.
                 let pagination = HttpPaginationOptions::default().with_limit(Self::MAX_REPORTS as u64);

@@ -19,6 +19,19 @@ use crate::ui::modals::confirmation::ConfirmationModal;
 use crate::ui::modals::loading::LoadingModal;
 use crate::ui::notification::NotificationType;
 
+const BASE_SEND_TIMEOUT: usize = 30;
+
+fn get_sms_count(char_count: usize) -> usize {
+    match char_count {
+        0 => 0,
+        1..=160 => 1,
+        _ => {
+            // For multipart messages, each part is 153 chars (7 chars for metadata)
+            (char_count + 152) / 153
+        }
+    }
+}
+
 pub struct ComposeView {
     context: AppContext,
     cursor_position: usize,
@@ -232,8 +245,7 @@ impl ViewBase for ComposeView {
         } else if char_count <= 320 {
             (Style::default().fg(tailwind::YELLOW.c400).bg(theme.bg), format!("{}/320 (2 SMS parts)", char_count))
         } else {
-            let sms_count = (char_count + 159) / 160;
-            (theme.error_style().bg(theme.bg), format!("{}/{} ({} SMS parts)", char_count, sms_count * 160, sms_count))
+            (theme.error_style().bg(theme.bg), format!("{} ({} SMS parts)", char_count, get_sms_count(char_count)))
         };
 
         let char_counter = Paragraph::new(counter_text)
@@ -266,13 +278,15 @@ impl ModalResponderComponent for ComposeView {
         let sender = self.context.1.clone();
 
         tokio::spawn(async move {
-            let message = HttpOutgoingSmsMessage::simple_message(phone.clone(), content.clone());
+            let length = content.len();
+            let message = HttpOutgoingSmsMessage::simple_message(phone.clone(), content)
+                .with_timeout((BASE_SEND_TIMEOUT * get_sms_count(length)) as u32);
 
             // Send the SMS message
             let notification = match http.send_sms(&message).await {
                 Ok(response) => {
                     // Push message to views to ensure its synced even if WebSocket is disabled
-                    let stored_message = SmsStoredMessage::from((message, response.clone()));
+                    let stored_message = SmsStoredMessage::from((message, response));
                     let _ = sender.send(AppAction::HandleIncomingMessage(stored_message));
 
                     NotificationType::GenericMessage {
