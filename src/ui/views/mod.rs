@@ -3,6 +3,7 @@ mod messages;
 mod phonebook;
 mod compose;
 mod device_info;
+mod main_menu;
 
 use std::fmt::Display;
 use crossterm::event::KeyEvent;
@@ -24,6 +25,7 @@ use crate::ui::{ModalResponderComponent, ViewBase};
 /// Public request interface for switching views.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ViewStateRequest {
+    MainMenu,
     Phonebook,
     DeviceInfo,
     Messages {
@@ -43,6 +45,11 @@ impl ViewStateRequest {
     /// Create ViewState::ViewMessages with a default reversed state.
     pub fn view_messages(phone_number: &str) -> Self {
         Self::Messages { phone_number: phone_number.to_string(), reversed: false }
+    }
+}
+impl Default for ViewStateRequest {
+    fn default() -> Self {
+        Self::MainMenu
     }
 }
 impl From<AppError> for ViewStateRequest {
@@ -117,7 +124,9 @@ impl Display for ViewManager {
 
 /// The CurrentView holds the BaseView itself, and any additional context.
 /// It is private, and only used to maintain the state in ViewManager.
+/// It's basically just a view factory.
 enum CurrentView {
+    MainMenu(main_menu::MainMenuView),
     Phonebook(phonebook::PhonebookView),
     DeviceInfo(device_info::DeviceInfoView),
     Messages {
@@ -138,6 +147,7 @@ enum CurrentView {
 impl CurrentView {
     fn from_request(request: ViewStateRequest, context: &AppContext) -> Self {
         match request {
+            ViewStateRequest::MainMenu => CurrentView::MainMenu(main_menu::MainMenuView::new()),
             ViewStateRequest::Phonebook => CurrentView::Phonebook(phonebook::PhonebookView::with_context(context.clone())),
             ViewStateRequest::DeviceInfo => CurrentView::DeviceInfo(device_info::DeviceInfoView::with_context(context.clone())),
             ViewStateRequest::Messages { phone_number, reversed } =>
@@ -162,6 +172,7 @@ impl CurrentView {
 
     async fn load(&mut self) -> AppResult<()> {
         match self {
+            CurrentView::MainMenu(view) => view.load(()).await,
             CurrentView::Phonebook(view) => view.load(()).await,
             CurrentView::DeviceInfo(view) => view.load(()).await,
             CurrentView::Messages { view, phone_number, reversed } => {
@@ -176,6 +187,7 @@ impl CurrentView {
 
     async fn handle_key(&mut self, key: KeyEvent) -> Option<AppAction> {
         match self {
+            CurrentView::MainMenu(view) => view.handle_key(key, ()).await,
             CurrentView::Phonebook(view) => view.handle_key(key, ()).await,
             CurrentView::DeviceInfo(view) => view.handle_key(key, ()).await,
             CurrentView::Messages { view, phone_number, reversed } => {
@@ -192,6 +204,7 @@ impl CurrentView {
 
     fn render(&mut self, frame: &mut Frame, theme: &Theme) {
         match self {
+            CurrentView::MainMenu(view) => view.render(frame, theme, ()),
             CurrentView::Phonebook(view) => view.render(frame, theme, ()),
             CurrentView::DeviceInfo(view) => view.render(frame, theme, ()),
             CurrentView::Messages { view, phone_number, reversed } => {
@@ -253,6 +266,7 @@ impl CurrentView {
 impl Display for CurrentView {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::MainMenu { .. } => write!(f, "Main Menu"),
             Self::Phonebook { .. } => write!(f, "Phonebook"),
             Self::DeviceInfo { .. } => write!(f, "Device Info"),
             Self::Messages { phone_number, .. } => write!(f, "Viewing Messages ｜ {}", phone_number),

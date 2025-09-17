@@ -91,7 +91,7 @@ impl App {
         }
 
         // Transition into starting state (which may be an error!)
-        self.transition_view(ViewStateRequest::DeviceInfo).await;
+        self.transition_view(ViewStateRequest::default()).await;
 
         let mut ticker = interval(Duration::from_millis(30));
         loop {

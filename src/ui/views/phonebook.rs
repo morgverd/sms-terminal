@@ -100,8 +100,11 @@ impl ViewBase for PhonebookView {
 
     async fn handle_key<'ctx>(&mut self, key: KeyEvent, _ctx: Self::Context<'ctx>) -> Option<AppAction> {
         match key.code {
-            KeyCode::Char('c') | KeyCode::Char('C') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                return Some(AppAction::Exit);
+            KeyCode::Esc => {
+                return Some(AppAction::SetViewState {
+                    state: ViewStateRequest::default(),
+                    dismiss_modal: true
+                });
             },
             KeyCode::Char('e') | KeyCode::Char('E') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 let selected = self.selected_contact?;
@@ -222,11 +225,11 @@ impl ViewBase for PhonebookView {
 
         // Controls help
         let help_text = if self.recent_contacts.is_empty() {
-            "(Enter) confirm, (Ctrl+C) quit"
+            "(Enter) confirm, (Esc) menu"
         } else if self.selected_contact.is_some() {
-            "(Enter) confirm, ↑↓ select, (Ctrl+E) edit name, (Ctrl+C) quit"
+            "↑↓ select, (Enter) confirm, (Ctrl+E) edit name, (Esc) menu"
         } else {
-            "(Enter) confirm, ↑↓ select contact, (Ctrl+C) quit"
+            "↑↓ select contact, (Enter) confirm, (Esc) menu"
         };
 
         let help = Paragraph::new(help_text)

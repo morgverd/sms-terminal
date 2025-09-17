@@ -355,6 +355,9 @@ impl ViewBase for MessagesView {
         let view_state = match key.code {
             KeyCode::Esc => {
                 self.reset();
+
+                // This should go back to the phonebook, not default (main menu)
+                // since you can only get here through the phonebook anyway.
                 Some(ViewStateRequest::Phonebook)
             },
             KeyCode::Char('c') | KeyCode::Char('C') => {

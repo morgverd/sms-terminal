@@ -27,7 +27,7 @@ impl ViewBase for ErrorView {
         match key.code {
             KeyCode::Esc if ctx.1 => {
                 Some(AppAction::SetViewState {
-                    state: ViewStateRequest::Phonebook,
+                    state: ViewStateRequest::default(),
                     dismiss_modal: false
                 })
             },

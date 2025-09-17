@@ -207,7 +207,7 @@ impl ViewBase for DeviceInfoView {
     async fn load<'ctx>(&mut self, _ctx: Self::Context<'ctx>) -> AppResult<()> {
         if self.device_info.is_none() {
             self.device_info = Some(self.context.0.get_device_info().await.map_err(|e| ClientError::from(e))?);
-            }
+        }
         Ok(())
     }
 
@@ -215,7 +215,7 @@ impl ViewBase for DeviceInfoView {
         match key.code {
             KeyCode::Esc => {
                 Some(AppAction::SetViewState {
-                    state: ViewStateRequest::Phonebook,
+                    state: ViewStateRequest::default(),
                     dismiss_modal: false
                 })
             },
@@ -233,7 +233,7 @@ impl ViewBase for DeviceInfoView {
     }
 
     fn render<'ctx>(&mut self, frame: &mut Frame, theme: &Theme, _ctx: Self::Context<'ctx>) {
-        let area = centered_rect(70, 55, frame.area());
+        let area = centered_rect(50, 50, frame.area());
         frame.render_widget(Clear, area);
 
         let block = Block::bordered()
@@ -383,7 +383,7 @@ impl ViewBase for DeviceInfoView {
         frame.render_widget(network_info, main_layout[5]);
 
         // Help text
-        let help = Paragraph::new("(R) Refresh  •  (Esc) Back")
+        let help = Paragraph::new("(r) refresh, (Esc) menu")
             .style(Style::default().fg(theme.text_muted))
             .alignment(Alignment::Center);
         frame.render_widget(help, main_layout[7]);
