@@ -20,18 +20,42 @@ jobs:
             os: ubuntu-latest
             artifact_name: sms-terminal
             asset_name: sms-terminal-linux-x64
+            features: ""
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            artifact_name: sms-terminal
+            asset_name: sms-terminal-linux-x64-sentry
+            features: "--features sentry"
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-latest
             artifact_name: sms-terminal
             asset_name: sms-terminal-linux-aarch64
+            features: ""
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            artifact_name: sms-terminal
+            asset_name: sms-terminal-linux-aarch64-sentry
+            features: "--features sentry"
           - target: i686-pc-windows-gnu
             os: ubuntu-latest
             artifact_name: sms-terminal.exe
             asset_name: sms-terminal-windows-x32
+            features: ""
+          - target: i686-pc-windows-gnu
+            os: ubuntu-latest
+            artifact_name: sms-terminal.exe
+            asset_name: sms-terminal-windows-x32-sentry
+            features: "--features sentry"
           - target: x86_64-pc-windows-gnu
             os: ubuntu-latest
             artifact_name: sms-terminal.exe
             asset_name: sms-terminal-windows-x64
+            features: ""
+          - target: x86_64-pc-windows-gnu
+            os: ubuntu-latest
+            artifact_name: sms-terminal.exe
+            asset_name: sms-terminal-windows-x64-sentry
+            features: "--features sentry"
 
     steps:
       - name: Checkout code
@@ -66,7 +90,7 @@ jobs:
             ${{ runner.os }}-${{ matrix.target }}-cargo-
 
       - name: Build binary
-        run: cargo build --release --target ${{ matrix.target }}
+        run: cargo build --release --target ${{ matrix.target }} ${{ matrix.features }}
 
       - name: Strip binary (Linux)
         if: runner.os == 'Linux' && !contains(matrix.target, 'windows')
@@ -127,9 +151,13 @@ jobs:
             
             ### Downloads
             - **Linux x64**: sms-terminal-linux-x64
+            - **Linux x64 with Sentry**: sms-terminal-linux-x64-sentry
             - **Linux ARM64**: sms-terminal-linux-aarch64
+            - **Linux ARM64 with Sentry**: sms-terminal-linux-aarch64-sentry
             - **Windows x32**: sms-terminal-windows-x32.exe
+            - **Windows x32 with Sentry**: sms-terminal-windows-x32-sentry.exe
             - **Windows x64**: sms-terminal-windows-x64.exe
+            - **Windows x64 with Sentry**: sms-terminal-windows-x64-sentry.exe
 
       - name: Upload Linux x64 binary
         uses: actions/upload-release-asset@v1
@@ -139,6 +167,16 @@ jobs:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
           asset_path: artifacts/sms-terminal-linux-x64/sms-terminal
           asset_name: sms-terminal-linux-x64
+          asset_content_type: application/octet-stream
+
+      - name: Upload Linux x64 with Sentry binary
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: artifacts/sms-terminal-linux-x64-sentry/sms-terminal
+          asset_name: sms-terminal-linux-x64-sentry
           asset_content_type: application/octet-stream
 
       - name: Upload Linux ARM64 binary
@@ -151,6 +189,16 @@ jobs:
           asset_name: sms-terminal-linux-aarch64
           asset_content_type: application/octet-stream
 
+      - name: Upload Linux ARM64 with Sentry binary
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: artifacts/sms-terminal-linux-aarch64-sentry/sms-terminal
+          asset_name: sms-terminal-linux-aarch64-sentry
+          asset_content_type: application/octet-stream
+
       - name: Upload Windows x32 binary
         uses: actions/upload-release-asset@v1
         env:
@@ -161,6 +209,16 @@ jobs:
           asset_name: sms-terminal-windows-x32.exe
           asset_content_type: application/octet-stream
 
+      - name: Upload Windows x32 with Sentry binary
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: artifacts/sms-terminal-windows-x32-sentry/sms-terminal.exe
+          asset_name: sms-terminal-windows-x32-sentry.exe
+          asset_content_type: application/octet-stream
+
       - name: Upload Windows x64 binary
         uses: actions/upload-release-asset@v1
         env:
@@ -169,4 +227,14 @@ jobs:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
           asset_path: artifacts/sms-terminal-windows-x64/sms-terminal.exe
           asset_name: sms-terminal-windows-x64.exe
+          asset_content_type: application/octet-stream
+
+      - name: Upload Windows x64 with Sentry binary
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: artifacts/sms-terminal-windows-x64-sentry/sms-terminal.exe
+          asset_name: sms-terminal-windows-x64-sentry.exe
           asset_content_type: application/octet-stream
