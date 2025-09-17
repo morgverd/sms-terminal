@@ -12,8 +12,9 @@ use sms_client::http::types::{HttpSmsDeviceInfoData, HttpModemSignalStrengthResp
 use crate::app::AppContext;
 use crate::error::AppResult;
 use crate::theme::Theme;
-use crate::types::{ViewState, AppAction};
+use crate::types::AppAction;
 use crate::ui::{centered_rect, ViewBase};
+use crate::ui::views::ViewStateRequest;
 
 pub struct DeviceInfoView {
     context: AppContext,
@@ -66,17 +67,13 @@ impl DeviceInfoView {
     fn render_battery(&self, battery: &HttpModemBatteryLevelResponse, theme: &Theme) -> Vec<Line<'static>> {
         let battery_level = battery.charge.min(100); // Ensure within 0-100 range
 
-        // Battery design with clear separation between outline and fill
         let battery_top =    "┌──────────────┐ ";
         let battery_tip =    "│              │█";
         let battery_body =   "│              │█";
         let battery_body2 =  "│              │█";
         let battery_bottom = "└──────────────┘ ";
 
-        // Calculate fill level (out of 14 characters)
         let filled_chars = ((battery_level as f32 / 100.0) * 14.0) as usize;
-
-        // Create battery outline and fill separately
         let create_battery_line = |_outline: &str| -> Vec<Span<'static>> {
             let mut spans = Vec::new();
 
@@ -218,7 +215,7 @@ impl ViewBase for DeviceInfoView {
         match key.code {
             KeyCode::Esc => {
                 Some(AppAction::SetViewState {
-                    state: ViewState::Phonebook,
+                    state: ViewStateRequest::Phonebook,
                     dismiss_modal: false
                 })
             },
@@ -226,7 +223,7 @@ impl ViewBase for DeviceInfoView {
                 match self.load(()).await {
                     Ok(_) => None,
                     Err(e) => Some(AppAction::SetViewState {
-                        state: ViewState::from(e),
+                        state: ViewStateRequest::from(e),
                         dismiss_modal: true
                     })
                 }

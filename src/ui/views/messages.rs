@@ -14,9 +14,10 @@ use crate::app::AppContext;
 use crate::error::{AppError, AppResult};
 use crate::modals::AppModal;
 use crate::theme::Theme;
-use crate::types::{ViewState, AppAction, SmsMessage};
+use crate::types::{AppAction, SmsMessage};
 use crate::ui::modals::delivery_reports::DeliveryReportsModal;
 use crate::ui::ViewBase;
+use crate::ui::views::ViewStateRequest;
 
 // Pages of 20 items, load next (max-5)
 const ITEM_HEIGHT: usize = 4;
@@ -53,12 +54,12 @@ impl MessagesView {
         }
     }
 
-    pub fn add_live_message(&mut self, message: SmsMessage) {
+    pub fn add_live_message(&mut self, message: &SmsMessage) {
         if self.messages.iter().any(|m| m.message_id == message.message_id) {
             return;
         }
 
-        self.messages.insert(0, message);
+        self.messages.insert(0, message.clone());
         self.total_messages = self.messages.len();
         self.update_constraints();
         self.scroll_state = ScrollbarState::new((self.messages.len() - 1) * ITEM_HEIGHT);
@@ -354,21 +355,21 @@ impl ViewBase for MessagesView {
         let view_state = match key.code {
             KeyCode::Esc => {
                 self.reset();
-                Some(ViewState::Phonebook)
+                Some(ViewStateRequest::Phonebook)
             },
             KeyCode::Char('c') | KeyCode::Char('C') => {
-                Some(ViewState::Compose {
+                Some(ViewStateRequest::Compose {
                     phone_number: ctx.0.to_string()
                 })
             },
             KeyCode::Char('r') | KeyCode::Char('R') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.reset();
-                Some(ViewState::Messages { phone_number: ctx.0.to_string(), reversed: !self.reversed })
+                Some(ViewStateRequest::Messages { phone_number: ctx.0.to_string(), reversed: !self.reversed })
             },
             KeyCode::Char('r') | KeyCode::Char('R') => {
                 match self.reload(ctx.0).await {
                     Ok(()) => None,
-                    Err(e) => Some(ViewState::from(e))
+                    Err(e) => Some(ViewStateRequest::from(e))
                 }
             },
             KeyCode::Char('m') | KeyCode::Char('M') => {
@@ -387,7 +388,7 @@ impl ViewBase for MessagesView {
                 self.next_row();
                 match self.check_load_more(ctx.0).await {
                     Ok(()) => None,
-                    Err(e) => Some(ViewState::from(e))
+                    Err(e) => Some(ViewStateRequest::from(e))
                 }
             },
             KeyCode::Up => {

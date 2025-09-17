@@ -1,43 +1,33 @@
 use std::sync::Arc;
+use std::time::Duration;
 use color_eyre::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
-use ratatui::{DefaultTerminal, Frame};
-use std::time::Duration;
+use ratatui::DefaultTerminal;
 use ratatui::style::Color;
 use sms_client::Client;
 use sms_client::http::HttpClient;
-use sms_client::types::SmsStoredMessage;
 use sms_client::ws::types::WebsocketMessage;
 use tokio::sync::mpsc;
 use tokio::time::interval;
 
 use crate::TerminalConfig;
 use crate::error::{AppError, AppResult};
-use crate::modals::{AppModal, ModalLoadBehaviour, ModalResponse};
+use crate::modals::{AppModal, ModalLoadBehaviour};
 use crate::theme::ThemeManager;
-use crate::types::{ViewState, KeyDebouncer, KeyPress, AppAction, SmsMessage, DEBOUNCE_DURATION};
-use crate::ui::{ModalResponderComponent, ViewBase};
-use crate::ui::notification::{NotificationType, NotificationView};
-use crate::ui::views::error::ErrorView;
-use crate::ui::views::messages::MessagesView;
-use crate::ui::views::phonebook::PhonebookView;
-use crate::ui::views::compose::ComposeView;
-use crate::ui::views::device_info::DeviceInfoView;
+use crate::types::{KeyDebouncer, KeyPress, AppAction, SmsMessage, DEBOUNCE_DURATION};
+use crate::ui::ViewBase;
+use crate::ui::notifications::{NotificationType, NotificationsView};
+use crate::ui::views::{ViewManager, ViewStateRequest};
 
 pub type AppActionSender = mpsc::UnboundedSender<AppAction>;
 pub type AppContext = (Arc<HttpClient>, AppActionSender);
 
 pub struct App {
-    view_state: ViewState,
+    view_manager: ViewManager,
+    notifications: NotificationsView,
     current_modal: Option<AppModal>,
-    key_debouncer: KeyDebouncer,
     theme_manager: ThemeManager,
-    phonebook_view: PhonebookView,
-    device_info_view: DeviceInfoView,
-    messages_view: MessagesView,
-    compose_view: ComposeView,
-    error_view: ErrorView,
-    notification_view: NotificationView,
+    key_debouncer: KeyDebouncer,
     message_receiver: mpsc::UnboundedReceiver<AppAction>,
     message_sender: mpsc::UnboundedSender<AppAction>,
     sms_client: Client,
@@ -56,16 +46,11 @@ impl App {
         let context: AppContext = (client.http_arc(), tx.clone());
 
         Ok(Self {
-            view_state: ViewState::Phonebook,
+            view_manager: ViewManager::new(context)?,
+            notifications: NotificationsView::new(),
             current_modal: None,
-            key_debouncer: KeyDebouncer::new(DEBOUNCE_DURATION),
             theme_manager: ThemeManager::with_preset(config.theme),
-            phonebook_view: PhonebookView::with_context(context.clone()),
-            device_info_view: DeviceInfoView::with_context(context.clone()),
-            messages_view: MessagesView::with_context(context.clone()),
-            compose_view: ComposeView::with_context(context),
-            error_view: ErrorView::new(),
-            notification_view: NotificationView::new(),
+            key_debouncer: KeyDebouncer::new(DEBOUNCE_DURATION),
             message_receiver: rx,
             message_sender: tx,
             sms_client: client,
@@ -89,7 +74,7 @@ impl App {
                 title: "WebSocket Disabled".to_string(),
                 message: "Live updates will not show!".to_string(),
             };
-            self.notification_view.add_notification(notification);
+            self.notifications.add_notification(notification);
         };
 
         // If we're running a +sentry build, we're expecting to run in some managed env
@@ -102,19 +87,37 @@ impl App {
                 title: "Sentry Inactive".to_string(),
                 message: "Sentry feature is compiled, but is not configured!".to_string(),
             };
-            self.notification_view.add_notification(notification);
+            self.notifications.add_notification(notification);
         }
 
         // Transition into starting state (which may be an error!)
-        self.transition_view(ViewState::DeviceInfo).await;
+        self.transition_view(ViewStateRequest::DeviceInfo).await;
 
         let mut ticker = interval(Duration::from_millis(30));
         loop {
             // Process all actions from the channel
             while let Ok(action) = self.message_receiver.try_recv() {
-                self.handle_app_action(action).await;
+                if self.handle_app_action(action).await {
+                    return Ok(());
+                }
             }
-            terminal.draw(|frame| self.render(frame))?;
+
+            terminal.draw(|frame| {
+                let theme = self.theme_manager.current();
+
+                // Views (bottom)
+                if self.render_views {
+                    self.view_manager.render(frame, &theme);
+                }
+
+                // Modals
+                if let Some(modal) = &mut self.current_modal {
+                    modal.render(frame, &theme);
+                }
+
+                // Notifications (top)
+                self.notifications.render(frame, &theme, ());
+            })?;
 
             // Poll for key input
             while event::poll(Duration::from_millis(0))? {
@@ -135,53 +138,16 @@ impl App {
         }
     }
 
-    fn render(&mut self, frame: &mut Frame) {
-        let theme = self.theme_manager.current();
-
-        // Render main application view
-        if self.render_views {
-            match &self.view_state {
-                ViewState::Phonebook => self.phonebook_view.render(frame, theme, ()),
-                ViewState::DeviceInfo => self.device_info_view.render(frame, theme, ()),
-                ViewState::Messages { phone_number, reversed } => self.messages_view.render(frame, theme, (phone_number, *reversed)),
-                ViewState::Compose { phone_number } => self.compose_view.render(frame, theme, phone_number),
-                ViewState::Error { message, dismissible } => self.error_view.render(frame, theme, (message, *dismissible))
-            }
-        }
-
-        // Render modal on top of main view
-        if let Some(modal) = &mut self.current_modal {
-            modal.render(frame, theme);
-        }
-
-        // Render notifications on top of everything
-        self.notification_view.render(frame, theme, ());
-    }
-
-    async fn transition_view(&mut self, view_state: ViewState) {
-        let result = match &view_state {
-            ViewState::Phonebook => self.phonebook_view.load(()).await,
-            ViewState::DeviceInfo => self.device_info_view.load(()).await,
-            ViewState::Messages { phone_number, reversed } => self.messages_view.load((phone_number, *reversed)).await,
-            ViewState::Compose { phone_number } => self.compose_view.load(phone_number).await,
-            _ => Ok(())
-        };
-
-        // Get the actual state by first checking if any of
-        // the view transition results returned an error.
-        let actual_state = if let Err(e) = result {
-            ViewState::from(e)
-        } else {
-            view_state
-        };
+    async fn transition_view(&mut self, request: ViewStateRequest) {
+        self.view_manager.transition_to(request).await;
+        self.key_debouncer.reset();
 
         let _ = crossterm::execute!(
             std::io::stdout(),
-            crossterm::terminal::SetTitle(format!("SMS Terminal v{} ｜ {}", crate::VERSION, actual_state)),
+            crossterm::terminal::SetTitle(
+                format!("SMS Terminal v{} ｜ {}", crate::VERSION, self.view_manager)
+            ),
         );
-
-        self.view_state = actual_state;
-        self.key_debouncer.reset();
     }
 
     async fn handle_app_action(&mut self, action: AppAction) -> bool {
@@ -200,24 +166,30 @@ impl App {
             },
             AppAction::Exit => return true,
             AppAction::HandleIncomingMessage(sms_message) => {
-                if let Err(e) = self.handle_new_message(sms_message).await {
-                    self.transition_view(ViewState::from(e)).await;
+
+                // Try to add the incoming message to the current view
+                let msg = SmsMessage::from(&sms_message);
+                let show_notification = !self.view_manager.try_add_message(&msg);
+
+                // Show incoming notification if not suppressed by view
+                if show_notification && !sms_message.is_outgoing {
+                    let notification = NotificationType::IncomingMessage {
+                        phone: sms_message.phone_number.clone(),
+                        content: msg.content
+                    };
+                    self.notifications.add_notification(notification);
                 }
             },
             AppAction::DeliveryFailure(_) => unimplemented!("Oops!"),
-            AppAction::ShowNotification(notification) => self.notification_view.add_notification(notification),
+            AppAction::ShowNotification(notification) => {
+                self.notifications.add_notification(notification)
+            },
             AppAction::ShowError { message, dismissible } => {
 
                 // If another error is being displayed, only overwrite it if
                 // that one is dismissable but this one isn't. Otherwise, ignore.
-                let allowed = match &self.view_state {
-                    ViewState::Error { dismissible: existing_dismissable, .. } => {
-                        *existing_dismissable || !dismissible
-                    },
-                    _ => true
-                };
-                if allowed {
-                    self.transition_view(ViewState::Error { message, dismissible }).await;
+                if self.view_manager.should_show_error(dismissible) {
+                    self.transition_view(ViewStateRequest::Error { message, dismissible }).await;
                 }
             }
         };
@@ -226,13 +198,12 @@ impl App {
     }
 
     async fn get_key_action(&mut self, key: KeyEvent) -> Option<AppAction> {
-        // Debounce all key presses.
         let key_press = KeyPress::from(key);
         if !self.key_debouncer.should_process(&key_press) {
             return None;
         }
 
-        // Global theme switching with F10
+        // TODO: FIND BETTER KEYS.
         if key.code == KeyCode::F(10) {
             self.theme_manager.next();
             return None;
@@ -248,74 +219,20 @@ impl App {
                 return None;
             };
 
-            // Route response to appropriate view based on ID
-            let response = match modal.id.as_str() {
-                "confirm_sms_send" => self.compose_view.handle_modal_response(response, modal.metadata.clone()),
-                "edit_friendly_name" => self.phonebook_view.handle_modal_response(response, modal.metadata.clone()),
-                id => {
+            // Check if current view implements ModalResponderComponent
+            let response = self.view_manager.handle_modal_response(response, modal.metadata.clone());
 
-                    // Ignore this issue if it's just a dismissal, since there isn't really
-                    // anything to process so it doesn't matter if the modal has no handler
-                    match response {
-                        ModalResponse::Dismissed => None,
-                        _ => Some(AppAction::ShowError {
-                            message: format!("Got unknown modal response ID '{}'!", id),
-                            dismissible: true
-                        })
-                    }
-                }
-            };
-
-            // Clear current modal before submitting response
-            // This also passively handles Dismissed
             self.set_modal(None);
             return response;
         }
 
         // Handle notification interactions
-        if let Some(response) = self.notification_view.handle_key(key, ()).await {
+        if let Some(response) = self.notifications.handle_key(key, ()).await {
             return Some(response);
         }
 
-        // View handlers
-        match &self.view_state {
-            ViewState::Phonebook => self.phonebook_view.handle_key(key, ()).await,
-            ViewState::DeviceInfo => self.device_info_view.handle_key(key, ()).await,
-            ViewState::Messages { phone_number, reversed } => self.messages_view.handle_key(key, (phone_number, *reversed)).await,
-            ViewState::Compose { phone_number } => self.compose_view.handle_key(key, phone_number).await,
-            ViewState::Error { message, dismissible } => self.error_view.handle_key(key, (message, *dismissible)).await
-        }
-    }
-
-    async fn handle_new_message(&mut self, sms_message: SmsStoredMessage) -> AppResult<()> {
-        // Only add the message if we're viewing messages for the same phone number.
-        let msg = SmsMessage::from(&sms_message);
-        let mut show_notification = true;
-        match &self.view_state {
-            ViewState::Messages { phone_number, .. } if phone_number == sms_message.phone_number.as_str() => {
-                self.messages_view.add_live_message(msg.clone());
-                show_notification = false;
-            }
-            _ => { }
-        }
-
-        // Push to phone list view always so it maintains order.
-        self.phonebook_view.push_new_number(
-            sms_message.phone_number.clone()
-        ).await?;
-
-        // Show a notification for incoming SMS messages.
-        // Use the SMSMessage variant for content as it's sanitized.
-        // Do not show the notification if we're already viewing those messages.
-        if show_notification && !sms_message.is_outgoing {
-            let notification = NotificationType::IncomingMessage {
-                phone: sms_message.phone_number.clone(),
-                content: msg.content
-            };
-            self.notification_view.add_notification(notification);
-        }
-
-        Ok(())
+        // Delegate to current view
+        self.view_manager.handle_key(key).await
     }
 
     fn set_modal(&mut self, modal: Option<AppModal>) {

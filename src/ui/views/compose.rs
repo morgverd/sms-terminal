@@ -13,11 +13,12 @@ use crate::app::AppContext;
 use crate::error::AppResult;
 use crate::modals::{AppModal, ModalMetadata, ModalResponse};
 use crate::theme::Theme;
-use crate::types::{ViewState, AppAction};
+use crate::types::AppAction;
 use crate::ui::{centered_rect, ModalResponderComponent, ViewBase};
 use crate::ui::modals::confirmation::ConfirmationModal;
 use crate::ui::modals::loading::LoadingModal;
-use crate::ui::notification::NotificationType;
+use crate::ui::notifications::NotificationType;
+use crate::ui::views::ViewStateRequest;
 
 const BASE_SEND_TIMEOUT: usize = 30;
 
@@ -148,7 +149,7 @@ impl ViewBase for ComposeView {
             KeyCode::Esc => {
                 self.sms_text_buffer.clear();
                 return Some(AppAction::SetViewState {
-                    state: ViewState::view_messages(ctx),
+                    state: ViewStateRequest::view_messages(ctx),
                     dismiss_modal: false
                 });
             },
@@ -308,7 +309,7 @@ impl ModalResponderComponent for ComposeView {
 
             let _ = sender.send(AppAction::ShowNotification(notification));
             let _ = sender.send(AppAction::SetViewState {
-                state: ViewState::view_messages(&phone),
+                state: ViewStateRequest::view_messages(&phone),
                 // Ensure the loading modal is dismissed on this state change.
                 dismiss_modal: true
             });

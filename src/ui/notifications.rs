@@ -6,10 +6,12 @@ use ratatui::Frame;
 use std::time::{Duration, Instant};
 use crossterm::event::{KeyCode, KeyEvent};
 use sms_client::types::ModemStatusUpdateState;
+
 use crate::error::AppResult;
 use crate::theme::Theme;
-use crate::types::{ViewState, AppAction};
+use crate::types::AppAction;
 use crate::ui::ViewBase;
+use crate::ui::views::ViewStateRequest;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum NotificationType {
@@ -70,12 +72,12 @@ struct RenderContext<'a> {
     is_top: bool
 }
 
-pub struct NotificationView {
+pub struct NotificationsView {
     notifications: Vec<NotificationMessage>,
     display_duration: Duration,
     max_notifications: usize
 }
-impl NotificationView {
+impl NotificationsView {
 
     const TEXTWRAP_MAX_WIDTH: usize = 50;
     const INCOMING_MESSAGE_MAX_LINES: usize = 3;
@@ -279,7 +281,7 @@ impl NotificationView {
         lines
     }
 }
-impl ViewBase for NotificationView {
+impl ViewBase for NotificationsView {
     type Context<'ctx> = ();
 
     async fn load<'ctx>(&mut self, _ctx: Self::Context<'ctx>) -> AppResult<()> {
@@ -300,7 +302,7 @@ impl ViewBase for NotificationView {
                 {
                     self.dismiss_all();
                     return Some(AppAction::SetViewState {
-                        state: ViewState::view_messages(&*phone_number),
+                        state: ViewStateRequest::view_messages(&*phone_number),
                         dismiss_modal: false
                     });
                 }
@@ -348,7 +350,7 @@ impl ViewBase for NotificationView {
         }
     }
 }
-impl Default for NotificationView {
+impl Default for NotificationsView {
     fn default() -> Self {
         Self::new()
     }

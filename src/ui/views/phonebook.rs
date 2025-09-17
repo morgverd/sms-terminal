@@ -11,10 +11,11 @@ use crate::app::AppContext;
 use crate::error::AppResult;
 use crate::modals::{AppModal, ModalMetadata, ModalResponse};
 use crate::theme::Theme;
-use crate::types::{ViewState, AppAction};
+use crate::types::{AppAction};
 use crate::ui::{centered_rect, ModalResponderComponent, ViewBase};
 use crate::ui::modals::text_input::TextInputModal;
-use crate::ui::notification::NotificationType;
+use crate::ui::notifications::NotificationType;
+use crate::ui::views::ViewStateRequest;
 
 pub struct PhonebookView {
     context: AppContext,
@@ -33,28 +34,6 @@ impl PhonebookView {
             input_buffer: String::new(),
             max_contacts: 14
         }
-    }
-
-    pub async fn push_new_number(&mut self, phone_number: String) -> AppResult<()> {
-        if let Some(pos) = self.recent_contacts.iter().position(|(key, _)| *key == phone_number) {
-            // If found, move to the front
-            let item = self.recent_contacts.remove(pos);
-            self.recent_contacts.insert(0, item);
-        } else {
-
-            // Get any existing friendly name
-            let friendly_name = self.context.0.get_friendly_name(&phone_number)
-                .await
-                .map_err(|e| ClientError::from(e))?;
-
-            // If not found, insert at front
-            self.recent_contacts.insert(0, (phone_number, friendly_name));
-            if self.recent_contacts.len() > self.max_contacts {
-                self.recent_contacts.truncate(self.max_contacts);
-            }
-        }
-
-        Ok(())
     }
 
     fn select_next(&mut self) {
@@ -155,7 +134,7 @@ impl ViewBase for PhonebookView {
                     self.input_buffer.clear();
 
                     return Some(AppAction::SetViewState {
-                        state: ViewState::view_messages(&*phone_number),
+                        state: ViewStateRequest::view_messages(&*phone_number),
                         dismiss_modal: false
                     });
                 }
@@ -288,7 +267,6 @@ impl ViewBase for PhonebookView {
     }
 }
 impl ModalResponderComponent for PhonebookView {
-
     fn handle_modal_response(&mut self, response: ModalResponse, metadata: ModalMetadata) -> Option<AppAction> {
         let phone_number = match metadata {
             ModalMetadata::PhoneNumber(phone_number) => phone_number,

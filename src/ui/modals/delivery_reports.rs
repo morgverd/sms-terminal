@@ -11,13 +11,13 @@ use sms_client::types::{SmsDeliveryReportStatus, SmsDeliveryReportStatusGroup};
 use crate::error::AppError;
 use crate::modals::{AppModal, ModalResponse};
 use crate::theme::Theme;
-use crate::types::{AppAction, SmsMessage, ViewState};
+use crate::types::{AppAction, SmsMessage};
 use crate::ui::modals::{ModalComponent, ModalLoadBehaviour, ModalUtils};
 use crate::ui::modals::loading::LoadingModal;
+use crate::ui::views::ViewStateRequest;
 
-/// This is to make sure we can always add a 'Sent' report as the
-/// first delivery report for each message. Otherwise,
-///
+/// This is to make sure we can always add a 'Sent' report
+/// as the first delivery report for each message.
 #[derive(Debug, Clone, PartialEq)]
 enum ReportEntry {
     Sent { timestamp: Option<DateTime<Local>> },
@@ -203,7 +203,7 @@ impl ModalComponent for DeliveryReportsModal {
                     Ok(reports) => reports,
                     Err(e) => {
                         let _ = ctx.1.send(AppAction::SetViewState {
-                            state: ViewState::from(AppError::from(ClientError::from(e))),
+                            state: ViewStateRequest::from(AppError::from(ClientError::from(e))),
                             dismiss_modal: true
                         });
                         return;

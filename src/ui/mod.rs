@@ -1,6 +1,6 @@
 pub mod modals;
 pub mod views;
-pub mod notification;
+pub mod notifications;
 
 use crossterm::event::KeyEvent;
 use ratatui::Frame;

@@ -6,8 +6,9 @@ use ratatui::Frame;
 
 use crate::error::AppResult;
 use crate::theme::Theme;
-use crate::types::{ViewState, AppAction};
+use crate::types::AppAction;
 use crate::ui::{centered_rect, ViewBase};
+use crate::ui::views::ViewStateRequest;
 
 pub struct ErrorView;
 impl ErrorView {
@@ -26,7 +27,7 @@ impl ViewBase for ErrorView {
         match key.code {
             KeyCode::Esc if ctx.1 => {
                 Some(AppAction::SetViewState {
-                    state: ViewState::Phonebook,
+                    state: ViewStateRequest::Phonebook,
                     dismiss_modal: false
                 })
             },

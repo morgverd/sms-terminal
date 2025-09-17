@@ -208,17 +208,16 @@ impl ThemeManager {
 
     /// Get the current theme, lazily loading it if it doesn't yet exist.
     pub fn current(&mut self) -> &Theme {
-        let preset = PresetTheme::variants()[self.current_index];
-        let palette = preset.palette();
-
-        let (theme_cache, use_dynamic) = if self.modify_background {
-            (&mut self.dynamic_themes, true)
+        let theme_cache = if self.modify_background {
+            &mut self.dynamic_themes
         } else {
-            (&mut self.static_themes, false)
+            &mut self.static_themes
         };
 
-        theme_cache[self.current_index]
-            .get_or_insert_with(|| Theme::with_mode(&palette, use_dynamic))
+        theme_cache[self.current_index].get_or_insert_with(|| {
+            let preset = PresetTheme::variants()[self.current_index];
+            Theme::with_mode(&preset.palette(), self.modify_background)
+        })
     }
 
     pub fn next(&mut self) {

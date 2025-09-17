@@ -1,4 +1,3 @@
-use std::fmt::Display;
 use chrono::{DateTime, Local, NaiveDateTime, TimeZone};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use sms_client::types::SmsStoredMessage;
@@ -6,14 +5,14 @@ use std::time::{Duration, Instant};
 use ansi_escape_sequences::strip_ansi;
 use unicode_general_category::{get_general_category, GeneralCategory};
 
-use crate::error::AppError;
 use crate::modals::AppModal;
-use crate::ui::notification::NotificationType;
+use crate::ui::notifications::NotificationType;
+use crate::ui::views::ViewStateRequest;
 
 #[derive(Debug, PartialEq)]
 pub enum AppAction {
     SetViewState {
-        state: ViewState,
+        state: ViewStateRequest,
         dismiss_modal: bool
     },
     ShowModal(AppModal),
@@ -30,53 +29,11 @@ pub enum AppAction {
     DeliveryFailure(String)
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum ViewState {
-    Phonebook,
-    DeviceInfo,
-    Messages {
-        phone_number: String,
-        reversed: bool
-    },
-    Compose {
-        phone_number: String
-    },
-    Error {
-        message: String,
-        dismissible: bool
-    }
-}
-impl ViewState {
-
-    /// Create ViewState::ViewMessages with a default reversed state.
-    pub fn view_messages(phone_number: &str) -> Self {
-        Self::Messages { phone_number: phone_number.to_string(), reversed: false }
-    }
-}
-impl From<AppError> for ViewState {
-    fn from(error: AppError) -> Self {
-        ViewState::Error {
-            message: error.to_string(),
-            dismissible: false
-        }
-    }
-}
-impl Display for ViewState {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ViewState::Phonebook => write!(f, "Phonebook"),
-            ViewState::DeviceInfo => write!(f, "Device Info"),
-            ViewState::Messages { phone_number, .. } => write!(f, "Viewing Messages ｜ {}", phone_number),
-            ViewState::Compose { phone_number, .. } => write!(f, "Composing Message ｜ {}", phone_number),
-            ViewState::Error { dismissible, .. } => write!(f, "{}", if *dismissible { "Fatal Error" } else { "Error" })
-        }
-    }
-}
-
 /// A shortened version of a StoredSmsMessage that only
 /// stores the information used in messages_table.
 #[derive(Clone, Debug, PartialEq)]
 pub struct SmsMessage {
+    pub phone_number: String,
     pub identifier: String,
     pub direction: String,
     pub timestamp: String,
@@ -109,6 +66,7 @@ impl From<&SmsStoredMessage> for SmsMessage {
             .unwrap_or_else(|| Local::now());
 
         Self {
+            phone_number: value.phone_number.clone(),
             identifier: value.message_id.to_string(),
             direction: if value.is_outgoing { "← OUT" } else { "→ IN" }.to_string(),
             timestamp: dt.format("%d/%m/%y %H:%M").to_string(),
