@@ -291,6 +291,7 @@ impl ModalResponderComponent for ComposeView {
 
                     NotificationType::GenericMessage {
                         color: Color::Green,
+                        icon: "✔️".to_string(),
                         title: "Message Sent".to_string(),
                         message: format!("Message #{} was sent (ref {})!", response.message_id, response.reference_id),
                     }
@@ -298,6 +299,7 @@ impl ModalResponderComponent for ComposeView {
                 Err(e) => {
                     NotificationType::GenericMessage {
                         color: Color::Red,
+                        icon: "❌".to_string(),
                         title: "Send Failure".to_string(),
                         message: e.to_string()
                     }

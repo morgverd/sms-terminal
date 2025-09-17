@@ -9,6 +9,7 @@ use sms_client::http::HttpClient;
 use sms_client::types::SmsStoredMessage;
 use sms_client::ws::types::WebsocketMessage;
 use tokio::sync::mpsc;
+use tokio::time::interval;
 
 use crate::TerminalConfig;
 use crate::error::{AppError, AppResult};
@@ -41,7 +42,10 @@ pub struct App {
     message_sender: mpsc::UnboundedSender<AppAction>,
     sms_client: Client,
     websocket_enabled: bool,
-    render_views: bool
+    render_views: bool,
+
+    #[cfg(feature = "sentry")]
+    sentry_enabled: bool
 }
 impl App {
     pub fn new(config: TerminalConfig) -> Result<Self> {
@@ -66,7 +70,10 @@ impl App {
             message_sender: tx,
             sms_client: client,
             websocket_enabled: config.websocket,
-            render_views: true
+            render_views: true,
+
+            #[cfg(feature = "sentry")]
+            sentry_enabled: config.sentry.is_some()
         })
     }
 
@@ -78,29 +85,43 @@ impl App {
             // is disabled and therefore live updates will not work
             let notification = NotificationType::GenericMessage {
                 color: Color::Yellow,
+                icon: "❌".to_string(),
                 title: "WebSocket Disabled".to_string(),
                 message: "Live updates will not show!".to_string(),
             };
             self.notification_view.add_notification(notification);
         };
 
+        // If we're running a +sentry build, we're expecting to run in some managed env
+        // where the sentry dsn is always set. Therefore, if it isn't show a warning.
+        #[cfg(feature = "sentry")]
+        if !self.sentry_enabled {
+            let notification = NotificationType::GenericMessage {
+                color: Color::Yellow,
+                icon: "❌".to_string(),
+                title: "Sentry Inactive".to_string(),
+                message: "Sentry feature is compiled, but is not configured!".to_string(),
+            };
+            self.notification_view.add_notification(notification);
+        }
+
         // Transition into starting state (which may be an error!)
         self.transition_view(ViewState::DeviceInfo).await;
 
+        let mut ticker = interval(Duration::from_millis(30));
         loop {
-            terminal.draw(|frame| self.render(frame))?;
+            // Process all actions from the channel
             while let Ok(action) = self.message_receiver.try_recv() {
                 self.handle_app_action(action).await;
             }
+            terminal.draw(|frame| self.render(frame))?;
 
-            if event::poll(Duration::from_millis(100))? {
+            // Poll for key input
+            while event::poll(Duration::from_millis(0))? {
                 if let Event::Key(key) = event::read()? {
                     if key.kind == KeyEventKind::Release {
                         continue;
                     }
-
-                    // Transition the state, handling error format easily.
-                    // This is also the only direct way to quit, by returning true in the key response.
                     if let Some(action) = self.get_key_action(key).await {
                         if self.handle_app_action(action).await {
                             return Ok(());
@@ -108,6 +129,9 @@ impl App {
                     }
                 }
             }
+
+            // Yield back to runtime (for messages from websocket)
+            ticker.tick().await;
         }
     }
 

@@ -14,7 +14,11 @@ use app::App;
 use serde::{Deserialize, Serialize};
 use crate::theme::PresetTheme;
 
-const VERSION: &str = env!("CARGO_PKG_VERSION");
+const VERSION: &str = if cfg!(feature = "sentry") {
+    concat!(env!("CARGO_PKG_VERSION"), "+sentry")
+} else {
+    env!("CARGO_PKG_VERSION")
+};
 
 #[derive(Parser, Serialize, Deserialize, Debug, Clone)]
 #[command(
@@ -45,7 +49,11 @@ struct Arguments {
 
     #[arg(long, help = "Authorization token to use for HTTP and WebSocket requests")]
     #[serde(default)]
-    pub auth: Option<String>
+    pub auth: Option<String>,
+
+    #[cfg(feature = "sentry")]
+    #[arg(long, help = "Sentry DSN to use for error reporting")]
+    pub sentry: Option<String>
 }
 impl Arguments {
     pub fn load() -> Self {
@@ -58,7 +66,10 @@ impl Arguments {
             http_uri: cli_args.http_uri.or(file_config.http_uri),
             ws_uri: cli_args.ws_uri.or(file_config.ws_uri),
             ws_enabled: cli_args.ws_enabled.or(file_config.ws_enabled),
-            auth: cli_args.auth.or(file_config.auth)
+            auth: cli_args.auth.or(file_config.auth),
+
+            #[cfg(feature = "sentry")]
+            sentry: cli_args.sentry.or(file_config.sentry)
         }
     }
 
@@ -131,7 +142,10 @@ impl Default for Arguments {
             http_uri: None,
             ws_uri: None,
             ws_enabled: Some(false),
-            auth: None
+            auth: None,
+
+            #[cfg(feature = "sentry")]
+            sentry: None
         }
     }
 }
@@ -140,7 +154,10 @@ impl Default for Arguments {
 pub struct TerminalConfig {
     pub client: ClientConfig,
     pub theme: PresetTheme,
-    pub websocket: bool
+    pub websocket: bool,
+
+    #[cfg(feature = "sentry")]
+    pub sentry: Option<String>
 }
 impl TerminalConfig {
     pub fn parse() -> Self {
@@ -162,26 +179,56 @@ impl TerminalConfig {
         Self {
             client: client_config,
             theme: arguments.theme.unwrap_or_default(),
-            websocket: arguments.ws_enabled.unwrap_or(false)
+            websocket: arguments.ws_enabled.unwrap_or(false),
+
+            #[cfg(feature = "sentry")]
+            sentry: arguments.sentry
         }
     }
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
+#[cfg(feature = "sentry")]
+fn init_sentry(dsn: String) -> sentry::ClientInitGuard {
 
+    let panic_integration = sentry_panic::PanicIntegration::default().add_extractor(|_| None);
+    sentry::init((dsn, sentry::ClientOptions {
+        release: Some(VERSION.into()),
+        integrations: vec![std::sync::Arc::new(panic_integration)],
+        ..Default::default()
+    }))
+}
+
+const STARTING_MIN_WIDTH: u16 = 160;
+const STARTING_MIN_HEIGHT: u16 = 50;
+
+fn main() -> Result<()> {
     color_eyre::install()?;
     let config = TerminalConfig::parse();
-    let app = App::new(config)?;
 
-    let _ = crossterm::execute!(
-        std::io::stdout(),
-        crossterm::terminal::SetSize(160, 50)
-    );
+    #[cfg(feature = "sentry")]
+    let _sentry_guard = config.sentry.as_ref().map(|dsn| init_sentry(dsn.clone()));
 
-    let terminal = ratatui::init();
-    let app_result = app.run(terminal).await;
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?
+        .block_on(async move {
+            let app = App::new(config)?;
+            let terminal = ratatui::init();
 
-    ratatui::restore();
-    app_result
+            let should_resize = terminal.size()
+                .ok()
+                .map(|s| STARTING_MIN_HEIGHT > s.height || STARTING_MIN_WIDTH > s.width)
+                .unwrap_or(false);
+
+            if should_resize {
+                let _ = crossterm::execute!(
+                    std::io::stdout(),
+                    crossterm::terminal::SetSize(160, 50)
+                );
+            }
+
+            let app_result = app.run(terminal).await;
+            ratatui::restore();
+            app_result
+        })
 }

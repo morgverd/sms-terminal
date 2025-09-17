@@ -311,6 +311,7 @@ impl ModalResponderComponent for PhonebookView {
                 // It's not worth changing to the error state just over a failed friendly name change.
                 let notification = NotificationType::GenericMessage {
                     color: Color::Red,
+                    icon: "❌".to_string(),
                     title: "Edit Failed".to_string(),
                     message: format!("Failed to change friendly name for {}", cloned_phone),
                 };

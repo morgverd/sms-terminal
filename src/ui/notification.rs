@@ -27,6 +27,7 @@ pub enum NotificationType {
     },
     GenericMessage {
         color: Color,
+        icon: String,
         title: String,
         message: String
     }
@@ -57,7 +58,7 @@ impl NotificationMessage {
 }
 
 struct NotificationStyle {
-    icon: &'static str,
+    icon: String,
     title: String,
     border_color: Color,
     title_color: Color
@@ -115,7 +116,7 @@ impl NotificationView {
     fn get_notification_style(&self, notification: &NotificationMessage, theme: &Theme) -> NotificationStyle {
         match &notification.notification_type {
             NotificationType::IncomingMessage { .. } => NotificationStyle {
-                icon: "📨",
+                icon: "📨".to_string(),
                 title: "New Message".to_string(),
                 border_color: theme.text_accent,
                 title_color: theme.text_accent
@@ -127,7 +128,7 @@ impl NotificationView {
                     ModemStatusUpdateState::Startup | ModemStatusUpdateState::ShuttingDown => ("🟡", Color::Yellow)
                 };
                 NotificationStyle {
-                    icon,
+                    icon: icon.to_string(),
                     title: "Status Change".to_string(),
                     border_color: color,
                     title_color: color
@@ -140,15 +141,15 @@ impl NotificationView {
                     (false, false) => ("⚠️", "WebSocket Disconnected", Color::Red),
                 };
                 NotificationStyle {
-                    icon,
+                    icon: icon.to_string(),
                     title: title.into(),
                     border_color: color,
                     title_color: color
                 }
             },
-            NotificationType::GenericMessage { color, title, .. } => NotificationStyle {
-                icon: "❌",
+            NotificationType::GenericMessage { icon, color, title, .. } => NotificationStyle {
                 title: title.into(),
+                icon: icon.clone(),
                 border_color: color.clone(),
                 title_color: color.clone()
             }

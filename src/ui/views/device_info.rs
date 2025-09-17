@@ -120,8 +120,8 @@ impl DeviceInfoView {
             Line::from(""),
             Line::from(vec![
                 Span::styled(
-                    format!("{}{}% • {}", status_indicator, battery_level, format!("{:.2}V", battery.voltage)),
-                    theme.accent_style().add_modifier(Modifier::BOLD)
+                    format!("{}{}% • {:.2}V", status_indicator, battery_level, battery.voltage),
+                    theme.accent_style()
                 )
             ]),
             Line::from(vec![
@@ -162,20 +162,21 @@ impl DeviceInfoView {
         // Build signal bars from bottom up
         for row in (0..5).rev() {
             let mut spans = Vec::new();
-            spans.push(Span::raw("  ")); // Leading space
 
             for (bar_idx, &height) in bar_heights.iter().enumerate() {
                 let should_fill = bars > bar_idx && row >= (5 - height);
                 let style = if should_fill { filled_style } else { empty_style };
 
                 spans.push(Span::styled("███", style));
-                spans.push(Span::raw(" "));
+                if bar_idx < bar_heights.len() - 1 {
+                    spans.push(Span::raw(" "));
+                }
             }
 
             lines[row] = Line::from(spans);
         }
 
-        // Add signal details with clearer formatting
+        // Add signal details
         lines.push(Line::from(""));
         if signal.rssi == 99 {
             lines.push(Line::from(vec![
@@ -188,56 +189,28 @@ impl DeviceInfoView {
             lines.push(Line::from(vec![
                 Span::styled(
                     format!("{} ({}%)", quality_text, signal_percentage),
-                    theme.accent_style().add_modifier(Modifier::BOLD)
+                    theme.accent_style()
                 )
             ]));
         }
 
+        lines.push(Line::from(vec![
+            Span::styled(
+                format!("{} dBm", if signal.rssi == 99 { 0 } else { -113 + (signal.rssi.min(31) as i16 * 2) }),
+                Style::default().fg(theme.text_muted)
+            )
+        ]));
+
         lines
-    }
-
-    fn render_technical_details(&self, signal: &HttpModemSignalStrengthResponse, theme: &Theme) -> Vec<Line<'static>> {
-        // More accurate RSSI to dBm conversion
-        // Leading space to avoid needing to reformat in the Span. Looks silly though :(
-        let rssi_dbm = if signal.rssi == 99 {
-            " Unknown".to_string()
-        } else {
-            let dbm = -113 + (signal.rssi.min(31) as i16 * 2);
-            format!(" {} dBm", dbm)
-        };
-
-        let ber_text = if signal.ber == 99 {
-            " Unknown".to_string()
-        } else if signal.ber <= 7 {
-            format!(" {}", signal.ber)
-        } else {
-            " Invalid".to_string()
-        };
-
-        vec![
-            Line::from(vec![
-                Span::styled("RSSI:", theme.secondary_style()),
-                Span::styled(rssi_dbm, theme.accent_style()),
-            ]),
-            Line::from(vec![
-                Span::styled("BER:", theme.secondary_style()),
-                Span::styled(ber_text, theme.accent_style()),
-            ]),
-            Line::from(vec![
-                Span::styled("Raw RSSI:", theme.secondary_style()),
-                Span::styled(
-                    if signal.rssi == 99 { " Unknown".to_string() } else { format!(" {}/31", signal.rssi) },
-                    Style::default().fg(theme.text_muted)
-                ),
-            ]),
-        ]
     }
 }
 impl ViewBase for DeviceInfoView {
     type Context<'ctx> = ();
 
     async fn load<'ctx>(&mut self, _ctx: Self::Context<'ctx>) -> AppResult<()> {
-        self.device_info = Some(self.context.0.get_device_info().await.map_err(|e| ClientError::from(e))?);
+        if self.device_info.is_none() {
+            self.device_info = Some(self.context.0.get_device_info().await.map_err(|e| ClientError::from(e))?);
+            }
         Ok(())
     }
 
@@ -263,7 +236,7 @@ impl ViewBase for DeviceInfoView {
     }
 
     fn render<'ctx>(&mut self, frame: &mut Frame, theme: &Theme, _ctx: Self::Context<'ctx>) {
-        let area = centered_rect(75, 60, frame.area());
+        let area = centered_rect(70, 55, frame.area());
         frame.render_widget(Clear, area);
 
         let block = Block::bordered()
@@ -276,143 +249,144 @@ impl ViewBase for DeviceInfoView {
         frame.render_widget(block, area);
 
         // If we're loading, show nothing.
-        // TODO: Maybe actually show something.
         let Some(ref device_info) = self.device_info else {
             return;
         };
 
         let main_layout = Layout::vertical([
-            Constraint::Length(1),   // Top spacing
-            Constraint::Length(4),   // Phone number section
+            Constraint::Min(0),      // Flexible top spacing
+            Constraint::Length(2),   // Phone number section
             Constraint::Length(1),   // Spacing
             Constraint::Length(10),  // Battery and Signal section
             Constraint::Length(1),   // Spacing
-            Constraint::Length(6),   // Operator and technical details
-            Constraint::Min(1),      // Flexible spacing
-            Constraint::Length(1),   // Help text
+            Constraint::Length(3),   // Network info and version
+            Constraint::Min(0),      // Flexible bottom spacing
+            Constraint::Length(1)    // Help text
         ]).split(inner);
 
         // Phone number
         if let Some(ref phone_number) = device_info.phone_number {
-            let phone_section = Layout::vertical([
-                Constraint::Length(1),   // Label
-                Constraint::Length(2),   // Number with decoration
-                Constraint::Length(1),   // Separator
-            ]).split(main_layout[1]);
-
-            let phone_label = Paragraph::new("📞 Phone Number")
-                .style(theme.secondary_style().add_modifier(Modifier::BOLD))
-                .alignment(Alignment::Center);
-            frame.render_widget(phone_label, phone_section[0]);
-
-            let phone_display = Paragraph::new(vec![
+            let phone_content = Paragraph::new(vec![
+                Line::from(vec![
+                    Span::styled("📞 Phone Number", theme.secondary_style().add_modifier(Modifier::BOLD))
+                ]),
                 Line::from(vec![
                     Span::styled(
                         format!("╰─── {} ───╯", phone_number),
                         theme.accent_style().add_modifier(Modifier::BOLD)
                     )
-                ])
+                ]),
             ])
                 .alignment(Alignment::Center);
-            frame.render_widget(phone_display, phone_section[1]);
-
-            let separator = Paragraph::new("━".repeat((phone_section[2].width as usize).min(60)))
-                .style(theme.border_style())
-                .alignment(Alignment::Center);
-            frame.render_widget(separator, phone_section[2]);
+            frame.render_widget(phone_content, main_layout[1]);
         }
 
         // Battery and Signal
-        let metrics_layout = Layout::horizontal([
-            Constraint::Percentage(50),  // Battery
-            Constraint::Percentage(50),  // Signal
+        let metrics_outer = Layout::horizontal([
+            Constraint::Min(0),          // Flexible left padding
+            Constraint::Max(60),         // Maximum width for both indicators
+            Constraint::Min(0),          // Flexible right padding
         ]).split(main_layout[3]);
+
+        let metrics_layout = Layout::horizontal([
+            Constraint::Percentage(50),  // Left half for battery
+            Constraint::Percentage(50), // Right half for signal
+        ]).split(metrics_outer[1]);
 
         // Battery
         if let Some(ref battery) = device_info.battery {
-            let battery_section = Layout::vertical([
-                Constraint::Length(2),   // Label
-                Constraint::Length(8),   // Battery visual
+            let battery_center = Layout::horizontal([
+                Constraint::Min(0),       // Left padding
+                Constraint::Length(20),   // Battery widget
+                Constraint::Min(0),       // Right padding
             ]).split(metrics_layout[0]);
 
-            let battery_label = Paragraph::new(vec![
-                Line::from(vec![
-                    Span::styled("🔋 Battery Status", theme.secondary_style().add_modifier(Modifier::BOLD))
-                ]),
-                Line::from("")
-            ])
+            let battery_content = Layout::vertical([
+                Constraint::Length(1),   // Title
+                Constraint::Length(9),   // Content
+            ]).split(battery_center[1]);
+
+            let battery_title = Paragraph::new("🔋 Battery")
+                .style(theme.secondary_style().add_modifier(Modifier::BOLD))
                 .alignment(Alignment::Center);
-            frame.render_widget(battery_label, battery_section[0]);
+            frame.render_widget(battery_title, battery_content[0]);
 
             let battery_visual = Paragraph::new(self.render_battery(battery, theme))
                 .alignment(Alignment::Center);
-            frame.render_widget(battery_visual, battery_section[1]);
+            frame.render_widget(battery_visual, battery_content[1]);
         }
 
         // Signal
         if let Some(ref signal) = device_info.signal {
-            let signal_section = Layout::vertical([
-                Constraint::Length(2),   // Label
-                Constraint::Length(8),   // Signal bars
+            let signal_center = Layout::horizontal([
+                Constraint::Min(0),          // Left padding
+                Constraint::Length(20),      // Signal widget
+                Constraint::Min(0),          // Right padding
             ]).split(metrics_layout[1]);
 
-            let signal_label = Paragraph::new(vec![
-                Line::from(vec![
-                    Span::styled("📶 Signal Strength", theme.secondary_style().add_modifier(Modifier::BOLD))
-                ]),
-                Line::from("")
-            ])
+            let signal_content = Layout::vertical([
+                Constraint::Length(1),    // Title
+                Constraint::Length(1),    // Spacer
+                Constraint::Length(9),    // Content
+            ]).split(signal_center[1]);
+
+            let signal_title = Paragraph::new("📶 Signal")
+                .style(theme.secondary_style().add_modifier(Modifier::BOLD))
                 .alignment(Alignment::Center);
-            frame.render_widget(signal_label, signal_section[0]);
+            frame.render_widget(signal_title, signal_content[0]);
 
             let signal_visual = Paragraph::new(self.render_signal_bars(signal, theme))
                 .alignment(Alignment::Center);
-            frame.render_widget(signal_visual, signal_section[1]);
+            frame.render_widget(signal_visual, signal_content[2]);
         }
 
-        // Operator and technical details
-        let details_layout = Layout::horizontal([
-            Constraint::Percentage(50),  // Operator info
-            Constraint::Percentage(50),  // Technical details
-        ]).split(main_layout[5]);
-
-        // Operator
+        // Network operator, technical info, and version
         let operator_name = device_info.network_operator.as_ref()
             .map(|op| op.operator.clone())
             .or_else(|| device_info.service_provider.clone())
             .unwrap_or_else(|| "Unknown".to_string());
 
-        let operator_info = Paragraph::new(vec![
+        let mut network_lines = vec![
             Line::from(vec![
-                Span::styled("📡 Network Operator", theme.secondary_style().add_modifier(Modifier::BOLD))
+                Span::styled("Network: ", Style::default().fg(theme.text_muted)),
+                Span::styled(&operator_name, theme.accent_style()),
             ]),
-            Line::from(""),
-            Line::from(vec![
-                Span::styled(operator_name, theme.accent_style().add_modifier(Modifier::BOLD))
-            ]),
-        ])
-            .alignment(Alignment::Center);
-        frame.render_widget(operator_info, details_layout[0]);
+        ];
 
-        // Technical details
+        // Add technical details
         if let Some(ref signal) = device_info.signal {
-            let tech_details = Paragraph::new({
-                let mut lines = vec![
-                    Line::from(vec![
-                        Span::styled("⚙️ Technical Details", theme.secondary_style().add_modifier(Modifier::BOLD))
-                    ]),
-                    Line::from("")
-                ];
-                lines.extend(self.render_technical_details(signal, theme));
-                lines
-            })
-                .alignment(Alignment::Center);
-            frame.render_widget(tech_details, details_layout[1]);
+            let ber_text = if signal.ber == 99 {
+                "Unknown".to_string()
+            } else if signal.ber <= 7 {
+                format!("{}", signal.ber)
+            } else {
+                "Invalid".to_string()
+            };
+
+            network_lines.push(Line::from(vec![
+                Span::styled("BER: ", Style::default().fg(theme.text_muted)),
+                Span::styled(ber_text, theme.accent_style()),
+                Span::raw("  •  "),
+                Span::styled("Raw RSSI: ", Style::default().fg(theme.text_muted)),
+                Span::styled(
+                    if signal.rssi == 99 { "Unknown".to_string() } else { format!("{}/31", signal.rssi) },
+                    theme.accent_style()
+                ),
+            ]));
         }
 
+        // Add version as the third line
+        network_lines.push(Line::from(vec![
+            Span::styled("Version: ", Style::default().fg(theme.text_muted)),
+            Span::styled(&device_info.version, theme.accent_style()),
+        ]));
+
+        let network_info = Paragraph::new(network_lines)
+            .alignment(Alignment::Center);
+        frame.render_widget(network_info, main_layout[5]);
+
         // Help text
-        let help_text = "(r) refresh, (Esc) back";
-        let help = Paragraph::new(help_text)
+        let help = Paragraph::new("(R) Refresh  •  (Esc) Back")
             .style(Style::default().fg(theme.text_muted))
             .alignment(Alignment::Center);
         frame.render_widget(help, main_layout[7]);
