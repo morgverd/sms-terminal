@@ -121,7 +121,7 @@ impl ViewBase for PhonebookView {
                 let modal = AppModal::new("edit_friendly_name", ui)
                     .with_metadata(ModalMetadata::PhoneNumber(phone.clone()));
 
-                return Some(AppAction::ShowModal(modal));
+                return Some(AppAction::SetModal(Some(modal)));
             },
             KeyCode::Enter => {
                 let current_phone = self.selected_contact
@@ -270,9 +270,9 @@ impl ViewBase for PhonebookView {
     }
 }
 impl ModalResponderComponent for PhonebookView {
-    fn handle_modal_response(&mut self, response: ModalResponse, metadata: ModalMetadata) -> Option<AppAction> {
-        let phone_number = match metadata {
-            ModalMetadata::PhoneNumber(phone_number) => phone_number,
+    fn handle_modal_response(&mut self, modal: &mut AppModal, response: ModalResponse) -> Option<AppAction> {
+        let phone_number = match &modal.metadata {
+            ModalMetadata::PhoneNumber(phone_number) if modal.id == "edit_friendly_name" => phone_number,
             _ => return None
         };
         let friendly_name = match response {
@@ -302,10 +302,10 @@ impl ModalResponderComponent for PhonebookView {
 
         // Update local cache
         if let Some(contact) = self.recent_contacts.iter_mut()
-            .find(|(p, _)| *p == phone_number) {
+            .find(|(p, _)| p == phone_number) {
             contact.1 = Some(friendly_name.to_string());
         }
 
-        None
+        Some(AppAction::SetModal(None))
     }
 }

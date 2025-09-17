@@ -161,9 +161,7 @@ impl App {
                 }
                 self.transition_view(state).await;
             },
-            AppAction::ShowModal(modal) => {
-                self.set_modal(Some(modal));
-            },
+            AppAction::SetModal(modal) => self.set_modal(modal),
             AppAction::Exit => return true,
             AppAction::HandleIncomingMessage(sms_message) => {
 
@@ -215,14 +213,12 @@ impl App {
 
         // Handle modal interactions
         if let Some(modal) = &mut self.current_modal {
-            let Some(response) = modal.handle_key(key) else {
-                return None;
-            };
+            let response = self.view_manager.handle_modal_response(modal, key);
+            if response.is_some() {
 
-            // Check if current view implements ModalResponderComponent
-            let response = self.view_manager.handle_modal_response(response, modal.metadata.clone());
-
-            self.set_modal(None);
+                // Dismiss the current modal if some response was returned.
+                self.set_modal(None);
+            }
             return response;
         }
 

@@ -211,14 +211,14 @@ impl ModalComponent for DeliveryReportsModal {
                 };
 
                 let modal = AppModal::new("delivery_reports", DeliveryReportsModal::with_reports(message, reports));
-                let _ = ctx.1.send(AppAction::ShowModal(modal));
+                let _ = ctx.1.send(AppAction::SetModal(Some(modal)));
             });
 
             // Show temporary loading modal, and block the current (DeliveryReportsModal)
             // from being set. The loader above will then either change view state or modal,
             // which will dismiss the loading modal.
             let modal = AppModal::new("delivery_reports_loading", LoadingModal::new("Loading delivery reports..."));
-            (Some(AppAction::ShowModal(modal)), true)
+            (Some(AppAction::SetModal(Some(modal))), true)
         }))
     }
 }

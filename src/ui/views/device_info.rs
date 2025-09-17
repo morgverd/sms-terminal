@@ -233,7 +233,7 @@ impl ViewBase for DeviceInfoView {
     }
 
     fn render<'ctx>(&mut self, frame: &mut Frame, theme: &Theme, _ctx: Self::Context<'ctx>) {
-        let area = centered_rect(50, 50, frame.area());
+        let area = centered_rect(60, 55, frame.area());
         frame.render_widget(Clear, area);
 
         let block = Block::bordered()
@@ -245,8 +245,8 @@ impl ViewBase for DeviceInfoView {
         let inner = block.inner(area);
         frame.render_widget(block, area);
 
-        // If we're loading, show nothing.
-        let Some(ref device_info) = self.device_info else {
+        // If we're loading, show nothing
+        let Some(device_info) = &self.device_info else {
             return;
         };
 

@@ -385,7 +385,7 @@ impl ViewBase for MessagesView {
 
                 // Show uninitialized delivery report, which will trigger it's loading.
                 let modal = AppModal::new("delivery_reports", DeliveryReportsModal::new(message.clone()));
-                return Some(AppAction::ShowModal(modal))
+                return Some(AppAction::SetModal(Some(modal)))
             },
             KeyCode::Down => {
                 self.next_row();

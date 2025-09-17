@@ -11,7 +11,7 @@ use ratatui::Frame;
 
 use crate::app::AppContext;
 use crate::error::{AppError, AppResult};
-use crate::modals::{ModalMetadata, ModalResponse};
+use crate::modals::{AppModal, ModalResponse};
 use crate::theme::Theme;
 use crate::types::{AppAction, SmsMessage};
 use crate::ui::{ModalResponderComponent, ViewBase};
@@ -97,12 +97,9 @@ impl ViewManager {
         self.current.render(frame, theme)
     }
 
-    pub fn handle_modal_response(
-        &mut self,
-        response: ModalResponse,
-        metadata: ModalMetadata,
-    ) -> Option<AppAction> {
-        self.current.handle_modal_response(response, metadata)
+    pub fn handle_modal_response(&mut self, modal: &mut AppModal, key: KeyEvent) -> Option<AppAction> {
+        let response = modal.handle_key(key)?;
+        self.current.handle_modal_response(modal, response)
     }
 
     pub fn try_add_message(&mut self, message: &SmsMessage) -> bool {
@@ -185,6 +182,7 @@ impl CurrentView {
         }
     }
 
+    #[inline]
     async fn handle_key(&mut self, key: KeyEvent) -> Option<AppAction> {
         match self {
             CurrentView::MainMenu(view) => view.handle_key(key, ()).await,
@@ -202,6 +200,7 @@ impl CurrentView {
         }
     }
 
+    #[inline]
     fn render(&mut self, frame: &mut Frame, theme: &Theme) {
         match self {
             CurrentView::MainMenu(view) => view.render(frame, theme, ()),
@@ -219,14 +218,15 @@ impl CurrentView {
         }
     }
 
+    #[inline]
     fn handle_modal_response(
         &mut self,
-        response: ModalResponse,
-        metadata: ModalMetadata,
+        modal: &mut AppModal,
+        response: ModalResponse
     ) -> Option<AppAction> {
         match self {
-            CurrentView::Phonebook(view) => view.handle_modal_response(response, metadata),
-            CurrentView::Compose { view, .. } => view.handle_modal_response(response, metadata),
+            CurrentView::Phonebook(view) => view.handle_modal_response(modal, response),
+            CurrentView::Compose { view, .. } => view.handle_modal_response(modal, response),
             _ => match response {
 
                 // If the modal is being dismissed, it doesn't matter if it doesn't have a handler.

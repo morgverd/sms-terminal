@@ -15,7 +15,7 @@ pub enum AppAction {
         state: ViewStateRequest,
         dismiss_modal: bool
     },
-    ShowModal(AppModal),
+    SetModal(Option<AppModal>),
     HandleIncomingMessage(SmsStoredMessage),
     ShowNotification(NotificationType),
     ShowError {

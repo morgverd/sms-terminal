@@ -7,7 +7,7 @@ use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 
 use crate::error::AppResult;
-use crate::modals::{ModalMetadata, ModalResponse};
+use crate::modals::{AppModal, ModalResponse};
 use crate::theme::Theme;
 use crate::types::AppAction;
 
@@ -23,7 +23,7 @@ pub trait ModalResponderComponent {
 
     /// Handle a modal response with its associated metadata.
     /// Returns a KeyResponse if the app state should change.
-    fn handle_modal_response(&mut self, response: ModalResponse, metadata: ModalMetadata) -> Option<AppAction>;
+    fn handle_modal_response(&mut self, modal: &mut AppModal, response: ModalResponse) -> Option<AppAction>;
 }
 
 pub fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {

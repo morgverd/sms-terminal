@@ -161,7 +161,7 @@ impl ViewBase for ComposeView {
                     let modal = AppModal::new("confirm_sms_send", ConfirmationModal::new(format!("Send SMS to {}?", ctx)))
                         .with_metadata(ModalMetadata::SendMessage(ctx.to_owned(), self.sms_text_buffer.clone()));
 
-                    return Some(AppAction::ShowModal(modal));
+                    return Some(AppAction::SetModal(Some(modal)));
                 }
             },
             KeyCode::Enter => {
@@ -263,15 +263,15 @@ impl ViewBase for ComposeView {
 }
 impl ModalResponderComponent for ComposeView {
 
-    fn handle_modal_response(&mut self, response: ModalResponse, metadata: ModalMetadata) -> Option<AppAction> {
+    fn handle_modal_response(&mut self, modal: &mut AppModal, response: ModalResponse) -> Option<AppAction> {
         match response {
-            ModalResponse::Confirmed(true) => { },
+            ModalResponse::Confirmed(true) if modal.id == "confirm_sms_send" => { },
             _ => return None
         };
 
         // Ensure it's a SendMessage metadata
-        let (phone, content) = match metadata {
-            ModalMetadata::SendMessage(phone, content) => (phone, content),
+        let (phone, content) = match &modal.metadata {
+            ModalMetadata::SendMessage(phone, content) => (phone.clone(), content.clone()),
             _ => return None
         };
 
@@ -316,6 +316,6 @@ impl ModalResponderComponent for ComposeView {
         });
 
         let modal = AppModal::new("sms_sending", LoadingModal::new("Sending message..."));
-        Some(AppAction::ShowModal(modal))
+        Some(AppAction::SetModal(Some(modal)))
     }
 }
