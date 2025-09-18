@@ -11,13 +11,13 @@ use crate::ui::modals::{ModalComponent, ModalUtils};
 #[derive(Debug, Clone, PartialEq)]
 pub struct LoadingModal {
     pub message: String,
-    pub frame_count: u64,
+    pub frame_count: u64
 }
 impl LoadingModal {
     pub fn new(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
-            frame_count: 0,
+            frame_count: 0
         }
     }
 

@@ -265,7 +265,7 @@ impl ModalResponderComponent for ComposeView {
 
     fn handle_modal_response(&mut self, modal: &mut AppModal, response: ModalResponse) -> Option<AppAction> {
         match response {
-            ModalResponse::Confirmed(true) if modal.id == "confirm_sms_send" => { },
+            ModalResponse::Confirmed if modal.id == "confirm_sms_send" => { },
             _ => return None
         };
 

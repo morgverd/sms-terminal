@@ -249,7 +249,7 @@ impl ModalComponent for TextInputModal {
                 }
             },
             theme,
-            50,
+            40,
             modal_height
         );
     }

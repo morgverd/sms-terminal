@@ -23,7 +23,7 @@ pub enum ModalMetadata {
 #[derive(Debug, PartialEq)]
 pub enum ModalResponse {
     Dismissed,
-    Confirmed(bool),
+    Confirmed,
     TextInput(Option<String>)
 }
 

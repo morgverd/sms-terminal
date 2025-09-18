@@ -28,17 +28,9 @@ impl ModalComponent for ConfirmationModal {
             KeyCode::Left | KeyCode::Right | KeyCode::Tab => {
                 self.selected_yes = !self.selected_yes;
                 None
-            }
-            KeyCode::Enter => Some(ModalResponse::Confirmed(self.selected_yes)),
+            },
+            KeyCode::Enter => Some(if self.selected_yes { ModalResponse::Confirmed } else { ModalResponse::Dismissed }),
             KeyCode::Esc => Some(ModalResponse::Dismissed),
-            KeyCode::Char('y') | KeyCode::Char('Y') => {
-                self.selected_yes = true;
-                Some(ModalResponse::Confirmed(true))
-            }
-            KeyCode::Char('n') | KeyCode::Char('N') => {
-                self.selected_yes = false;
-                Some(ModalResponse::Confirmed(false))
-            }
             _ => None
         }
     }
@@ -77,8 +69,8 @@ impl ModalComponent for ConfirmationModal {
                 frame.render_widget(help, layout[3]);
             },
             theme,
-            50,
-            15,
+            40,
+            15
         );
     }
 }
