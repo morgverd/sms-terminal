@@ -145,7 +145,7 @@ impl ViewBase for MainMenuView {
         frame.render_widget(Clear, area);
 
         // Main container
-        let title = format!(" SMS Terminal v{} ", crate::VERSION);
+        let title = format!(" SMS Terminal v{} ", crate::PKG_VERSION);
         let block = Block::bordered()
             .title(title)
             .title_alignment(Alignment::Center)

@@ -174,10 +174,10 @@ impl CurrentView {
             CurrentView::DeviceInfo(view) => view.load(()).await,
             CurrentView::Messages { view, phone_number, reversed } => {
                 view.load((phone_number, *reversed)).await
-            }
+            },
             CurrentView::Compose { view, phone_number } => {
                 view.load(phone_number).await
-            }
+            },
             CurrentView::Error { .. } => Ok(()),
         }
     }
@@ -190,10 +190,10 @@ impl CurrentView {
             CurrentView::DeviceInfo(view) => view.handle_key(key, ()).await,
             CurrentView::Messages { view, phone_number, reversed } => {
                 view.handle_key(key, (phone_number, *reversed)).await
-            }
+            },
             CurrentView::Compose { view, phone_number } => {
                 view.handle_key(key, phone_number).await
-            }
+            },
             CurrentView::Error { view, message, dismissible } => {
                 view.handle_key(key, (message, *dismissible)).await
             }
@@ -208,10 +208,10 @@ impl CurrentView {
             CurrentView::DeviceInfo(view) => view.render(frame, theme, ()),
             CurrentView::Messages { view, phone_number, reversed } => {
                 view.render(frame, theme, (phone_number, *reversed))
-            }
+            },
             CurrentView::Compose { view, phone_number } => {
                 view.render(frame, theme, phone_number)
-            }
+            },
             CurrentView::Error { view, message, dismissible } => {
                 view.render(frame, theme, (message, *dismissible))
             }
@@ -224,6 +224,12 @@ impl CurrentView {
         modal: &mut AppModal,
         response: ModalResponse
     ) -> Option<AppAction> {
+
+        // If being dismissed, remove the current modal.
+        if matches!(response, ModalResponse::Dismissed) {
+            return Some(AppAction::SetModal(None));
+        }
+
         match self {
             CurrentView::Phonebook(view) => view.handle_modal_response(modal, response),
             CurrentView::Compose { view, .. } => view.handle_modal_response(modal, response),

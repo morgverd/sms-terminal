@@ -145,7 +145,7 @@ impl App {
         let _ = crossterm::execute!(
             std::io::stdout(),
             crossterm::terminal::SetTitle(
-                format!("SMS Terminal v{} ｜ {}", crate::VERSION, self.view_manager)
+                format!("SMS Terminal v{} ｜ {}", crate::FEATURE_VERSION, self.view_manager)
             ),
         );
     }

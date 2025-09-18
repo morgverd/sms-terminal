@@ -14,7 +14,8 @@ use app::App;
 use serde::{Deserialize, Serialize};
 use crate::theme::PresetTheme;
 
-const VERSION: &str = if cfg!(feature = "sentry") {
+const PKG_VERSION: &str = env!("CARGO_PKG_VERSION");
+const FEATURE_VERSION: &str = if cfg!(feature = "sentry") {
     concat!(env!("CARGO_PKG_VERSION"), "+sentry")
 } else {
     env!("CARGO_PKG_VERSION")
@@ -23,7 +24,7 @@ const VERSION: &str = if cfg!(feature = "sentry") {
 #[derive(Parser, Serialize, Deserialize, Debug, Clone)]
 #[command(
     name = "sms-terminal",
-    version = VERSION,
+    version = FEATURE_VERSION,
     about = "A terminal-based SMS client that can send and receive messages live."
 )]
 struct Arguments {
@@ -192,7 +193,7 @@ fn init_sentry(dsn: String) -> sentry::ClientInitGuard {
 
     let panic_integration = sentry_panic::PanicIntegration::default().add_extractor(|_| None);
     sentry::init((dsn, sentry::ClientOptions {
-        release: Some(VERSION.into()),
+        release: Some(FEATURE_VERSION.into()),
         integrations: vec![std::sync::Arc::new(panic_integration)],
         ..Default::default()
     }))
