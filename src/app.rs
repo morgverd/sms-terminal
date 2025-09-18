@@ -42,8 +42,9 @@ impl App {
         let client = Client::new(config.client)
             .map_err(|e| AppError::ConfigError(e.to_string()))?;
 
+        // Create return channel and context.
         let (tx, rx) = mpsc::unbounded_channel();
-        let context: AppContext = (client.http_arc(), tx.clone());
+        let context: AppContext = (client.http_arc()?, tx.clone());
 
         Ok(Self {
             view_manager: ViewManager::new(context)?,
@@ -243,7 +244,12 @@ impl App {
             // This is to ensure that the render + async loop is never blocked.
             match modal.load() {
                 ModalLoadBehaviour::Function(cb) => {
-                    let (action, should_block) = cb((self.sms_client.http_arc(), self.message_sender.clone()));
+
+                    // We can use expect here since the client is already checked in new.
+                    // This just prevents us having to propagate a Result that will never Err.
+                    let http = self.sms_client.http_arc().expect("Missing HttpClient within SMS Client!");
+                    
+                    let (action, should_block) = cb((http, self.message_sender.clone()));
                     if let Some(action) = action {
                         let _ = self.message_sender.send(action);
                     }
