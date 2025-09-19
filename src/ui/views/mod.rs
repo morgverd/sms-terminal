@@ -68,7 +68,7 @@ pub struct ViewManager {
 }
 impl ViewManager {
     pub fn new(context: AppContext) -> AppResult<Self> {
-        let current = CurrentView::from_request(ViewStateRequest::DeviceInfo, &context);
+        let current = CurrentView::from_request(ViewStateRequest::default(), &context);
         Ok(Self { current, context })
     }
 

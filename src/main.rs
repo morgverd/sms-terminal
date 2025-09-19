@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use color_eyre::Result;
 use sms_client::config::{ClientConfig, WebsocketConfig};
 
@@ -13,6 +13,7 @@ mod modals;
 use app::App;
 use serde::{Deserialize, Serialize};
 use crate::theme::PresetTheme;
+use crate::ui::views::ViewStateRequest;
 
 const PKG_VERSION: &str = env!("CARGO_PKG_VERSION");
 const FEATURE_VERSION: &str = if cfg!(feature = "sentry") {
@@ -21,13 +22,40 @@ const FEATURE_VERSION: &str = if cfg!(feature = "sentry") {
     env!("CARGO_PKG_VERSION")
 };
 
-#[derive(Parser, Serialize, Deserialize, Debug, Clone)]
+#[derive(Parser, Debug)]
 #[command(
     name = "sms-terminal",
     version = FEATURE_VERSION,
     about = "A terminal-based SMS client that can send and receive messages live."
 )]
-struct Arguments {
+struct Cli {
+    #[command(subcommand)]
+    pub command: Option<Commands>,
+
+    #[command(flatten)]
+    pub global_args: AppArguments,
+}
+
+#[derive(Subcommand, Debug)]
+enum Commands {
+    Messages {
+        #[arg(help = "Phone number to display messages for")]
+        phone_number: String,
+
+        #[arg(long, help = "Show messages in reverse order")]
+        reversed: bool,
+
+        #[command(flatten)]
+        args: AppArguments
+    },
+    Phonebook {
+        #[command(flatten)]
+        args: AppArguments
+    }
+}
+
+#[derive(Parser, Serialize, Deserialize, Debug, Clone)]
+struct AppArguments {
     #[arg(long, value_enum, help = "Select a built-in theme to start with")]
     #[serde(default)]
     pub theme: Option<PresetTheme>,
@@ -56,21 +84,20 @@ struct Arguments {
     #[arg(long, help = "Sentry DSN to use for error reporting")]
     pub sentry: Option<String>
 }
-impl Arguments {
-    pub fn load() -> Self {
-        let cli_args = Self::parse();
+impl AppArguments {
+    pub fn load_with_file_config(self) -> Self {
         let file_config = Self::load_or_create_file();
 
         Self {
-            theme: cli_args.theme.or(file_config.theme).or(Some(PresetTheme::default())),
-            host: cli_args.host.or(file_config.host).or(Some("localhost:3000".to_string())),
-            http_uri: cli_args.http_uri.or(file_config.http_uri),
-            ws_uri: cli_args.ws_uri.or(file_config.ws_uri),
-            ws_enabled: cli_args.ws_enabled.or(file_config.ws_enabled),
-            auth: cli_args.auth.or(file_config.auth),
+            theme: self.theme.or(file_config.theme).or(Some(PresetTheme::default())),
+            host: self.host.or(file_config.host).or(Some("localhost:3000".to_string())),
+            http_uri: self.http_uri.or(file_config.http_uri),
+            ws_uri: self.ws_uri.or(file_config.ws_uri),
+            ws_enabled: self.ws_enabled.or(file_config.ws_enabled),
+            auth: self.auth.or(file_config.auth),
 
             #[cfg(feature = "sentry")]
-            sentry: cli_args.sentry.or(file_config.sentry)
+            sentry: self.sentry.or(file_config.sentry)
         }
     }
 
@@ -135,7 +162,7 @@ impl Arguments {
         local
     }
 }
-impl Default for Arguments {
+impl Default for AppArguments {
     fn default() -> Self {
         Self {
             theme: None,
@@ -156,13 +183,27 @@ pub struct TerminalConfig {
     pub client: ClientConfig,
     pub theme: PresetTheme,
     pub websocket: bool,
+    pub starting_view: Option<ViewStateRequest>,
 
     #[cfg(feature = "sentry")]
-    pub sentry: Option<String>
+    pub sentry: Option<String>,
 }
 impl TerminalConfig {
     pub fn parse() -> Self {
-        let arguments = Arguments::load();
+        let cli = Cli::parse();
+
+        // Determine starting view and get the appropriate arguments
+        let (starting_view, arguments) = match cli.command {
+            Some(Commands::Messages { phone_number, reversed, args }) => (
+                Some(ViewStateRequest::Messages { phone_number, reversed }),
+                args
+            ),
+            Some(Commands::Phonebook { args }) => (Some(ViewStateRequest::Phonebook), args),
+            None => (None, cli.global_args), // default to phonebook
+        };
+
+        // Merge CLI args with file config
+        let arguments = arguments.load_with_file_config();
         let host = arguments.host.unwrap_or_else(|| "localhost:3000".to_string());
 
         // Create SMS config
@@ -181,16 +222,16 @@ impl TerminalConfig {
             client: client_config,
             theme: arguments.theme.unwrap_or_default(),
             websocket: arguments.ws_enabled.unwrap_or(false),
+            starting_view,
 
             #[cfg(feature = "sentry")]
-            sentry: arguments.sentry
+            sentry: arguments.sentry,
         }
     }
 }
 
 #[cfg(feature = "sentry")]
 fn init_sentry(dsn: String) -> sentry::ClientInitGuard {
-
     let panic_integration = sentry_panic::PanicIntegration::default().add_extractor(|_| None);
     sentry::init((dsn, sentry::ClientOptions {
         release: Some(FEATURE_VERSION.into()),
@@ -209,13 +250,12 @@ fn main() -> Result<()> {
     #[cfg(feature = "sentry")]
     let _sentry_guard = config.sentry.as_ref().map(|dsn| init_sentry(dsn.clone()));
 
-    tokio::runtime::Builder::new_current_thread()
+    let result = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?
         .block_on(async move {
-            let app = App::new(config)?;
-            let terminal = ratatui::init();
 
+            let terminal = ratatui::init();
             let should_resize = terminal.size()
                 .ok()
                 .map(|s| STARTING_MIN_HEIGHT > s.height || STARTING_MIN_WIDTH > s.width)
@@ -228,8 +268,14 @@ fn main() -> Result<()> {
                 );
             }
 
-            let app_result = app.run(terminal).await;
-            ratatui::restore();
-            app_result
-        })
+            // Get the starting view from arguments.
+            let starting_view = config.starting_view.as_ref()
+                .map(|s| s.clone())
+                .unwrap_or_default();
+
+            App::new(config)?.run(terminal, starting_view).await
+        });
+
+    ratatui::restore();
+    result
 }
