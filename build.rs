@@ -7,8 +7,8 @@ fn main() {
         let version_parts: Vec<&str> = version.split('.').collect();
 
         let major = version_parts.get(0).unwrap_or(&"0");
-        let minor = version_parts.get(1).unwrap_or(&"0"); // Fixed index
-        let patch = version_parts.get(2).unwrap_or(&"0"); // Fixed index
+        let minor = version_parts.get(1).unwrap_or(&"0");
+        let patch = version_parts.get(2).unwrap_or(&"0");
 
         let version_comma = format!("{},{},{},0", major, minor, patch);
 
