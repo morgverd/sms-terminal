@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use clap::{Parser, Subcommand};
 use color_eyre::Result;
-use sms_client::config::{ClientConfig, WebsocketConfig};
+use sms_client::config::{ClientConfig, TLSConfig, WebSocketConfig};
 
 mod app;
 mod error;
@@ -12,6 +12,7 @@ mod modals;
 
 use app::App;
 use serde::{Deserialize, Serialize};
+use crate::error::{AppError, AppResult};
 use crate::theme::PresetTheme;
 use crate::ui::views::ViewStateRequest;
 
@@ -33,21 +34,34 @@ struct Cli {
     pub command: Option<Commands>,
 
     #[command(flatten)]
-    pub global_args: AppArguments,
+    pub global_args: AppArguments
 }
 
 #[derive(Subcommand, Debug)]
 enum Commands {
+
+    #[command(about = "Start on Messages view with a target state")]
     Messages {
         #[arg(help = "Phone number to display messages for")]
         phone_number: String,
 
-        #[arg(long, help = "Show messages in reverse order")]
+        #[arg(long, action = clap::ArgAction::SetTrue, help = "Show messages in reverse order")]
         reversed: bool,
 
         #[command(flatten)]
         args: AppArguments
     },
+
+    #[command(about = "Start on Compose SMS view with a target state")]
+    Compose {
+        #[arg(help = "Phone number to compose a message for")]
+        phone_number: String,
+
+        #[command(flatten)]
+        args: AppArguments
+    },
+
+    #[command(about = "Start on Phonebook view")]
     Phonebook {
         #[command(flatten)]
         args: AppArguments
@@ -72,7 +86,7 @@ struct AppArguments {
     #[serde(default)]
     pub ws_uri: Option<String>,
 
-    #[arg(long, help = "Enable WebSocket support")]
+    #[arg(long, action = clap::ArgAction::SetTrue, help = "Enable WebSocket support")]
     #[serde(default)]
     pub ws_enabled: Option<bool>,
 
@@ -82,37 +96,39 @@ struct AppArguments {
 
     #[cfg(feature = "sentry")]
     #[arg(long, help = "Sentry DSN to use for error reporting")]
-    pub sentry: Option<String>
+    pub sentry: Option<String>,
+
+    #[serde(default, deserialize_with = "deserialize_certificate_filepath")]
+    #[arg(long, value_hint = clap::ValueHint::FilePath, help = "An SSL certificate filepath to use for SMS connections")]
+    pub ssl_certificate: Option<PathBuf>
 }
 impl AppArguments {
-    pub fn load_with_file_config(self) -> Self {
-        let file_config = Self::load_or_create_file();
+    pub fn load_with_file_config(self) -> AppResult<Self> {
+        let file_config = Self::load_or_create_file()?;
 
-        Self {
+        // CLI always takes priority over config file values.
+        Ok(Self {
             theme: self.theme.or(file_config.theme).or(Some(PresetTheme::default())),
             host: self.host.or(file_config.host).or(Some("localhost:3000".to_string())),
             http_uri: self.http_uri.or(file_config.http_uri),
             ws_uri: self.ws_uri.or(file_config.ws_uri),
             ws_enabled: self.ws_enabled.or(file_config.ws_enabled),
             auth: self.auth.or(file_config.auth),
+            ssl_certificate: self.ssl_certificate.or(file_config.ssl_certificate),
 
             #[cfg(feature = "sentry")]
             sentry: self.sentry.or(file_config.sentry)
-        }
+        })
     }
 
-    fn load_or_create_file() -> Self {
+    fn load_or_create_file() -> AppResult<Self> {
         let config_path = Self::config_path();
         if config_path.exists() {
-            match std::fs::read_to_string(&config_path) {
-                Ok(content) => {
-                    match toml::from_str(&content) {
-                        Ok(config) => return config,
-                        Err(e) => eprintln!("Failed to parse config: {}, using defaults", e),
-                    }
-                }
-                Err(e) => eprintln!("Failed to read config: {}, using defaults", e),
-            }
+            let file_data = std::fs::read_to_string(&config_path)
+                .map_err(|e| AppError::ConfigError(format!("Failed to read config file: {}", e)))?;
+
+            return toml::from_str::<Self>(&file_data)
+                .map_err(|e| AppError::ConfigError(format!("Failed to parse config file: {}", e)));
         }
 
         // Create default config file if it doesn't exist
@@ -120,19 +136,21 @@ impl AppArguments {
         if let Err(e) = default_config.save() {
             eprintln!("Failed to save default config: {}", e);
         }
-        default_config
+        Ok(default_config)
     }
 
-    pub fn save(&self) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn save(&self) -> AppResult<()> {
         let config_path = Self::config_path();
-
         if let Some(parent) = config_path.parent() {
-            std::fs::create_dir_all(parent)?;
+            std::fs::create_dir_all(parent)
+                .map_err(|e| AppError::ConfigError(format!("Failed to create config directories: {}", e)))?;
         }
 
-        let content = toml::to_string_pretty(self)?;
-        std::fs::write(config_path, content)?;
-        Ok(())
+        let content = toml::to_string_pretty(self)
+            .map_err(|e| AppError::ConfigError(format!("Failed to serialize config for saving: {}", e)))?;
+
+        std::fs::write(config_path, content)
+            .map_err(|e| AppError::ConfigError(format!("Failed to write config file: {}", e)))
     }
 
     fn config_path() -> PathBuf {
@@ -171,6 +189,7 @@ impl Default for AppArguments {
             ws_uri: None,
             ws_enabled: Some(false),
             auth: None,
+            ssl_certificate: None,
 
             #[cfg(feature = "sentry")]
             sentry: None
@@ -179,6 +198,7 @@ impl Default for AppArguments {
 }
 
 /// Contained config representation passed into App.
+#[derive(Debug)]
 pub struct TerminalConfig {
     pub client: ClientConfig,
     pub theme: PresetTheme,
@@ -189,44 +209,83 @@ pub struct TerminalConfig {
     pub sentry: Option<String>,
 }
 impl TerminalConfig {
-    pub fn parse() -> Self {
+    pub fn parse() -> Result<Self> {
         let cli = Cli::parse();
 
-        // Determine starting view and get the appropriate arguments
         let (starting_view, arguments) = match cli.command {
             Some(Commands::Messages { phone_number, reversed, args }) => (
                 Some(ViewStateRequest::Messages { phone_number, reversed }),
                 args
             ),
+            Some(Commands::Compose { phone_number, args }) => (
+                Some(ViewStateRequest::Compose { phone_number }),
+                args
+            ),
             Some(Commands::Phonebook { args }) => (Some(ViewStateRequest::Phonebook), args),
-            None => (None, cli.global_args), // default to phonebook
+            None => (None, cli.global_args)
         };
 
-        // Merge CLI args with file config
-        let arguments = arguments.load_with_file_config();
-        let host = arguments.host.unwrap_or_else(|| "localhost:3000".to_string());
-
-        // Create SMS config
-        let mut client_config = ClientConfig::http_only(
-            arguments.http_uri.unwrap_or_else(|| format!("http://{}", host))
-        );
-        if let Some(ws_enabled) = arguments.ws_enabled && ws_enabled {
-            let ws_uri = arguments.ws_uri.unwrap_or_else(|| format!("ws://{}/ws", host));
-            client_config = client_config.add_websocket(WebsocketConfig::new(ws_uri));
-        }
-        if let Some(auth) = arguments.auth {
-            client_config = client_config.with_auth(auth);
-        }
-
-        Self {
-            client: client_config,
+        let arguments = arguments.load_with_file_config()?;
+        Ok(Self {
+            client: Self::create_sms_config(&arguments)?,
             theme: arguments.theme.unwrap_or_default(),
             websocket: arguments.ws_enabled.unwrap_or(false),
             starting_view,
 
             #[cfg(feature = "sentry")]
             sentry: arguments.sentry,
+        })
+    }
+
+    fn create_sms_config(arguments: &AppArguments) -> Result<ClientConfig> {
+        let host = arguments.host.as_ref().map(String::from).unwrap_or_else(|| "localhost:3000".to_string());
+
+        // Create SMS config.
+        let secure = arguments.ssl_certificate.is_some().then(|| "s").unwrap_or("");
+        let mut client_config = ClientConfig::http_only(
+            arguments.http_uri.as_ref().map(String::from).unwrap_or_else(|| format!("http{}://{}", secure, host))
+        );
+
+        // Websocket
+        if arguments.ws_enabled.unwrap_or(false) {
+            let ws_uri = arguments.ws_uri.as_ref().map(String::from).unwrap_or_else(|| format!("ws{}://{}/ws", secure, host));
+            client_config = client_config.add_websocket(WebSocketConfig::new(ws_uri));
         }
+
+        // Authentication
+        if let Some(auth) = &arguments.auth {
+            client_config = client_config.with_auth(auth);
+        }
+
+        // SSL certificate
+        if let Some(certificate) = &arguments.ssl_certificate {
+            client_config = client_config.add_tls(TLSConfig::new(certificate)?);
+        }
+
+        Ok(client_config)
+    }
+}
+
+fn deserialize_certificate_filepath<'de, D>(deserializer: D) -> Result<Option<PathBuf>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let opt_path: Option<PathBuf> = Option::deserialize(deserializer)?;
+    match opt_path {
+        Some(path) => {
+            if !path.exists() {
+                return Err(serde::de::Error::custom(
+                    format!("File does not exist: {}", path.display())
+                ));
+            }
+            if !path.is_file() {
+                return Err(serde::de::Error::custom(
+                    format!("Path is not a file: {}", path.display())
+                ));
+            }
+            Ok(Some(path))
+        }
+        None => Ok(None),
     }
 }
 
@@ -245,7 +304,7 @@ const STARTING_MIN_HEIGHT: u16 = 50;
 
 fn main() -> Result<()> {
     color_eyre::install()?;
-    let config = TerminalConfig::parse();
+    let config = TerminalConfig::parse()?;
 
     #[cfg(feature = "sentry")]
     let _sentry_guard = config.sentry.as_ref().map(|dsn| init_sentry(dsn.clone()));
