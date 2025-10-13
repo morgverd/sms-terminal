@@ -1,22 +1,21 @@
 use crossterm::event::KeyEvent;
-use ratatui::Frame;
 use ratatui::layout::{Alignment, Rect};
 use ratatui::prelude::{Line, Modifier, Span, Style};
 use ratatui::widgets::{Block, BorderType, Clear, Paragraph};
+use ratatui::Frame;
 
-use crate::theme::Theme;
 use crate::modals::{ModalLoadBehaviour, ModalResponse};
+use crate::theme::Theme;
 use crate::ui::centered_rect;
 
 pub mod confirmation;
-pub mod text_input;
-pub mod loading;
 pub mod delivery_reports;
+pub mod loading;
+pub mod text_input;
 
 pub trait ModalComponent: std::fmt::Debug + Send + Sync {
-
     /// Handle modal incoming key, and return some response that is pushed back
-    /// to the View if it implements ModalResponderComponent. If None is returned,
+    /// to the View if it implements `ModalResponderComponent`. If None is returned,
     /// the input is entirely ignored (by both the Modal and active View).
     fn handle_key(&mut self, key: KeyEvent) -> Option<ModalResponse>;
 
@@ -24,12 +23,12 @@ pub trait ModalComponent: std::fmt::Debug + Send + Sync {
     fn render(&mut self, frame: &mut Frame, theme: &Theme);
 
     /// Get the modals load behaviour, called once the modal is being set as active.
-    /// This can be used to block the modal from loading, or return some AppAction.
+    /// This can be used to block the modal from loading, or return some `AppAction`.
     fn load(&self) -> ModalLoadBehaviour {
         ModalLoadBehaviour::None
     }
 
-    /// Should views from AppState still be rendered whilst Modal is active.
+    /// Should views from `AppState` still be rendered whilst Modal is active.
     fn should_render_views(&self) -> bool {
         true
     }
@@ -37,7 +36,6 @@ pub trait ModalComponent: std::fmt::Debug + Send + Sync {
 
 pub struct ModalUtils;
 impl ModalUtils {
-
     /// Render the base frame, used by all Modals.
     pub fn render_base<F>(
         frame: &mut Frame,
@@ -47,13 +45,13 @@ impl ModalUtils {
         width: u16,
         height: u16,
     ) where
-        F: FnOnce(&mut Frame, Rect, &Theme)
+        F: FnOnce(&mut Frame, Rect, &Theme),
     {
         let area = centered_rect(width, height, frame.area());
         frame.render_widget(Clear, area);
 
         let block = Block::bordered()
-            .title(format!(" {} ", title))
+            .title(format!(" {title} "))
             .title_alignment(Alignment::Center)
             .border_type(BorderType::Double)
             .border_style(theme.border_focused_style())
@@ -70,7 +68,7 @@ impl ModalUtils {
         frame: &mut Frame,
         area: Rect,
         buttons: &[ModalButtonComponent],
-        selected_index: usize
+        selected_index: usize,
     ) {
         let mut button_spans = Vec::new();
 
@@ -81,16 +79,12 @@ impl ModalUtils {
             }
 
             let style = button.render_style(i == selected_index);
-            button_spans.push(Span::styled(
-                format!("  {}  ", button.label),
-                style
-            ));
+            button_spans.push(Span::styled(format!("  {}  ", button.label), style));
         }
         button_spans.push(Span::raw("    "));
 
         let buttons_line = Line::from(button_spans);
-        let buttons_paragraph = Paragraph::new(buttons_line)
-            .alignment(Alignment::Center);
+        let buttons_paragraph = Paragraph::new(buttons_line).alignment(Alignment::Center);
         frame.render_widget(buttons_paragraph, area);
     }
 }
@@ -126,31 +120,30 @@ impl ModalButtonComponent {
         }
     }
 
-
     /// Create styled buttons for OK/Cancel pattern.
-    fn create_ok_cancel_buttons(button_styles: &ModalButtonComponentStyles) -> [ModalButtonComponent; 2] {
+    fn create_ok_cancel_buttons(
+        button_styles: &ModalButtonComponentStyles,
+    ) -> [ModalButtonComponent; 2] {
         [
-            ModalButtonComponent::new("OK").with_styles(
-                button_styles.primary_normal,
-                button_styles.primary_focused
-            ),
+            ModalButtonComponent::new("OK")
+                .with_styles(button_styles.primary_normal, button_styles.primary_focused),
             ModalButtonComponent::new("Cancel").with_styles(
                 button_styles.secondary_normal,
-                button_styles.secondary_focused
+                button_styles.secondary_focused,
             ),
         ]
     }
 
     /// Create styled buttons for Yes/No pattern.
-    fn create_yes_no_buttons(button_styles: &ModalButtonComponentStyles) -> [ModalButtonComponent; 2] {
+    fn create_yes_no_buttons(
+        button_styles: &ModalButtonComponentStyles,
+    ) -> [ModalButtonComponent; 2] {
         [
-            ModalButtonComponent::new("Yes").with_styles(
-                button_styles.primary_normal,
-                button_styles.primary_focused
-            ),
+            ModalButtonComponent::new("Yes")
+                .with_styles(button_styles.primary_normal, button_styles.primary_focused),
             ModalButtonComponent::new("No").with_styles(
                 button_styles.secondary_normal,
-                button_styles.secondary_focused
+                button_styles.secondary_focused,
             ),
         ]
     }

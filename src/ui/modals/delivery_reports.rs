@@ -1,9 +1,9 @@
+use chrono::{DateTime, Local, TimeZone};
 use crossterm::event::{KeyCode, KeyEvent};
-use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Layout};
 use ratatui::prelude::{Line, Modifier, Span, Style};
-use chrono::{DateTime, Local, TimeZone};
 use ratatui::widgets::Paragraph;
+use ratatui::Frame;
 use sms_client::error::ClientError;
 use sms_client::http::types::{HttpPaginationOptions, HttpSmsDeliveryReport};
 use sms_client::types::{SmsDeliveryReportStatus, SmsDeliveryReportStatusGroup};
@@ -12,8 +12,8 @@ use crate::error::AppError;
 use crate::modals::{AppModal, ModalResponse};
 use crate::theme::Theme;
 use crate::types::{AppAction, SmsMessage};
-use crate::ui::modals::{ModalComponent, ModalLoadBehaviour, ModalUtils};
 use crate::ui::modals::loading::LoadingModal;
+use crate::ui::modals::{ModalComponent, ModalLoadBehaviour, ModalUtils};
 use crate::ui::views::ViewStateRequest;
 
 /// This is to make sure we can always add a 'Sent' report
@@ -27,15 +27,18 @@ impl ReportEntry {
     fn timestamp(&self) -> Option<DateTime<Local>> {
         match self {
             ReportEntry::Sent { timestamp } => *timestamp,
-            ReportEntry::Api(report) => report.created_at
-                .and_then(|ts| Local.timestamp_opt(ts as i64, 0).single()),
+            ReportEntry::Api(report) => report
+                .created_at
+                .and_then(|ts| Local.timestamp_opt(i64::from(ts), 0).single()),
         }
     }
 
     fn status_group(&self) -> SmsDeliveryReportStatusGroup {
         match self {
             ReportEntry::Sent { .. } => SmsDeliveryReportStatusGroup::Sent,
-            ReportEntry::Api(report) => SmsDeliveryReportStatus::from(report.status).to_status_group(),
+            ReportEntry::Api(report) => {
+                SmsDeliveryReportStatus::from(report.status).to_status_group()
+            }
         }
     }
 
@@ -63,10 +66,10 @@ impl ReportEntry {
             SmsDeliveryReportStatusGroup::Received => Style::default()
                 .fg(theme.text_accent)
                 .add_modifier(Modifier::BOLD),
-            SmsDeliveryReportStatusGroup::PermanentFailure => theme.error_style()
-                .add_modifier(Modifier::BOLD),
-            SmsDeliveryReportStatusGroup::TemporaryFailure => Style::default()
-                .fg(theme.text_muted),
+            SmsDeliveryReportStatusGroup::PermanentFailure => {
+                theme.error_style().add_modifier(Modifier::BOLD)
+            }
+            SmsDeliveryReportStatusGroup::TemporaryFailure => Style::default().fg(theme.text_muted),
         }
     }
 
@@ -80,7 +83,7 @@ impl ReportEntry {
 
         Line::from(vec![
             Span::styled(format!("{} ", self.icon()), style),
-            Span::styled(format!("{} ", time_str), theme.secondary_style()),
+            Span::styled(format!("{time_str} "), theme.secondary_style()),
             Span::styled(self.display_text().to_string(), style),
         ])
     }
@@ -89,10 +92,11 @@ impl ReportEntry {
 #[derive(Debug, Clone, PartialEq)]
 pub struct DeliveryReportsModal {
     message: SmsMessage,
-    reports: Option<Vec<ReportEntry>>
+    reports: Option<Vec<ReportEntry>>,
 }
 impl DeliveryReportsModal {
-    pub const MAX_REPORTS: usize = 10;
+    pub const MAX_REPORTS_USIZE: usize = 10;
+    pub const MAX_REPORTS_U16: u16 = 10;
 
     /// Create uninitialized modal, which will trigger it to load once set active.
     pub fn new(message: SmsMessage) -> Self {
@@ -108,20 +112,20 @@ impl DeliveryReportsModal {
 
         // Add synthetic "sent" report if available
         if let Some(timestamp) = message.parse_message_timestamp() {
-            reports.push(ReportEntry::Sent { timestamp: Some(timestamp) });
+            reports.push(ReportEntry::Sent {
+                timestamp: Some(timestamp),
+            });
         }
 
         // Add API reports
         reports.extend(api_reports.into_iter().map(ReportEntry::Api));
 
         // Sort by timestamp (newest first), None values last
-        reports.sort_by(|a, b| {
-            match (a.timestamp(), b.timestamp()) {
-                (Some(a_time), Some(b_time)) => b_time.cmp(&a_time),
-                (Some(_), None) => std::cmp::Ordering::Less,
-                (None, Some(_)) => std::cmp::Ordering::Greater,
-                (None, None) => std::cmp::Ordering::Equal,
-            }
+        reports.sort_by(|a, b| match (a.timestamp(), b.timestamp()) {
+            (Some(a_time), Some(b_time)) => b_time.cmp(&a_time),
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => std::cmp::Ordering::Equal,
         });
 
         Self {
@@ -135,7 +139,7 @@ impl DeliveryReportsModal {
 
         match &self.reports {
             Some(reports) => {
-                for report in reports.iter().take(Self::MAX_REPORTS) {
+                for report in reports.iter().take(Self::MAX_REPORTS_USIZE) {
                     lines.push(report.to_timeline_entry(theme));
                 }
             }
@@ -145,7 +149,7 @@ impl DeliveryReportsModal {
         }
 
         // Pad to consistent height
-        while lines.len() < Self::MAX_REPORTS {
+        while lines.len() < Self::MAX_REPORTS_USIZE {
             lines.push(Line::raw(""));
         }
 
@@ -167,14 +171,15 @@ impl ModalComponent for DeliveryReportsModal {
             "Delivery Reports",
             |frame, area, theme| {
                 let sections = Layout::vertical([
-                    Constraint::Length(1),                         // Top padding
-                    Constraint::Min(Self::MAX_REPORTS as u16 * 2), // Timeline
-                    Constraint::Min(1),                            // Middle padding
-                    Constraint::Length(1),                         // Help text
-                ]).split(area);
+                    Constraint::Length(1),                      // Top padding
+                    Constraint::Min(Self::MAX_REPORTS_U16 * 2), // Timeline
+                    Constraint::Min(1),                         // Middle padding
+                    Constraint::Length(1),                      // Help text
+                ])
+                .split(area);
 
-                let timeline_paragraph = Paragraph::new(self.render_timeline(theme))
-                    .alignment(Alignment::Left);
+                let timeline_paragraph =
+                    Paragraph::new(self.render_timeline(theme)).alignment(Alignment::Left);
                 frame.render_widget(timeline_paragraph, sections[1]);
 
                 let help = Paragraph::new("(Esc) close")
@@ -184,7 +189,7 @@ impl ModalComponent for DeliveryReportsModal {
             },
             theme,
             50,
-            (Self::MAX_REPORTS as u16) + 10,
+            Self::MAX_REPORTS_U16 + 10,
         );
     }
 
@@ -196,28 +201,38 @@ impl ModalComponent for DeliveryReportsModal {
         let message = self.message.clone();
         ModalLoadBehaviour::Function(Box::new(move |ctx| {
             tokio::spawn(async move {
-
                 // Get all delivery reports for target message.
-                let pagination = HttpPaginationOptions::default().with_limit(Self::MAX_REPORTS as u64);
-                let reports = match ctx.0.get_delivery_reports(message.message_id, Some(pagination)).await {
+                let pagination =
+                    HttpPaginationOptions::default().with_limit(Self::MAX_REPORTS_USIZE as u64);
+                let reports = match ctx
+                    .0
+                    .get_delivery_reports(message.message_id, Some(pagination))
+                    .await
+                {
                     Ok(reports) => reports,
                     Err(e) => {
                         let _ = ctx.1.send(AppAction::SetViewState {
                             state: ViewStateRequest::from(AppError::from(ClientError::from(e))),
-                            dismiss_modal: true
+                            dismiss_modal: true,
                         });
                         return;
                     }
                 };
 
-                let modal = AppModal::new("delivery_reports", DeliveryReportsModal::with_reports(message, reports));
+                let modal = AppModal::new(
+                    "delivery_reports",
+                    DeliveryReportsModal::with_reports(message, reports),
+                );
                 let _ = ctx.1.send(AppAction::SetModal(Some(modal)));
             });
 
             // Show temporary loading modal, and block the current (DeliveryReportsModal)
             // from being set. The loader above will then either change view state or modal,
             // which will dismiss the loading modal.
-            let modal = AppModal::new("delivery_reports_loading", LoadingModal::new("Loading delivery reports..."));
+            let modal = AppModal::new(
+                "delivery_reports_loading",
+                LoadingModal::new("Loading delivery reports..."),
+            );
             (Some(AppAction::SetModal(Some(modal))), true)
         }))
     }

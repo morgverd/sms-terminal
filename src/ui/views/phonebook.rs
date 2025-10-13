@@ -11,18 +11,18 @@ use crate::app::AppContext;
 use crate::error::AppResult;
 use crate::modals::{AppModal, ModalMetadata, ModalResponse};
 use crate::theme::Theme;
-use crate::types::{AppAction};
-use crate::ui::{centered_rect, ModalResponderComponent, ViewBase};
+use crate::types::AppAction;
 use crate::ui::modals::text_input::TextInputModal;
 use crate::ui::notifications::NotificationType;
 use crate::ui::views::ViewStateRequest;
+use crate::ui::{centered_rect, ModalResponderComponent, ViewBase};
 
 pub struct PhonebookView {
     context: AppContext,
     recent_contacts: Vec<LatestNumberFriendlyNamePair>, // (phone, friendly name)
     selected_contact: Option<usize>,
     input_buffer: String,
-    max_contacts: usize
+    max_contacts: usize,
 }
 impl PhonebookView {
     pub fn with_context(context: AppContext) -> Self {
@@ -32,7 +32,7 @@ impl PhonebookView {
             recent_contacts,
             selected_contact: None,
             input_buffer: String::new(),
-            max_contacts: 14
+            max_contacts: 14,
         }
     }
 
@@ -55,8 +55,7 @@ impl PhonebookView {
         }
 
         match self.selected_contact {
-            None => self.selected_contact = Some(self.recent_contacts.len() - 1),
-            Some(0) => self.selected_contact = Some(self.recent_contacts.len() - 1),
+            None | Some(0) => self.selected_contact = Some(self.recent_contacts.len() - 1),
             Some(i) => self.selected_contact = Some(i - 1),
         }
     }
@@ -76,16 +75,19 @@ impl PhonebookView {
 impl ViewBase for PhonebookView {
     type Context<'ctx> = ();
 
-    async fn load<'ctx>(&mut self, _ctx: Self::Context<'ctx>) -> AppResult<()> {
+    async fn load(&mut self, _ctx: Self::Context<'_>) -> AppResult<()> {
         if !self.recent_contacts.is_empty() {
             return Ok(());
         }
 
         // Request first page of latest contacts.
         let pagination = HttpPaginationOptions::default().with_limit(self.max_contacts as u64);
-        self.recent_contacts = self.context.0.get_latest_numbers(Some(pagination))
+        self.recent_contacts = self
+            .context
+            .0
+            .get_latest_numbers(Some(pagination))
             .await
-            .map_err(|e| ClientError::from(e))?
+            .map_err(ClientError::from)?
             .into_iter()
             .collect();
 
@@ -98,19 +100,19 @@ impl ViewBase for PhonebookView {
         Ok(())
     }
 
-    async fn handle_key<'ctx>(&mut self, key: KeyEvent, _ctx: Self::Context<'ctx>) -> Option<AppAction> {
+    async fn handle_key(&mut self, key: KeyEvent, _ctx: Self::Context<'_>) -> Option<AppAction> {
         match key.code {
             KeyCode::Esc => {
                 return Some(AppAction::SetViewState {
                     state: ViewStateRequest::default(),
-                    dismiss_modal: true
+                    dismiss_modal: true,
                 });
-            },
-            KeyCode::Char('e') | KeyCode::Char('E') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            }
+            KeyCode::Char('e' | 'E') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 let selected = self.selected_contact?;
                 let (phone, name) = self.recent_contacts.get(selected)?;
 
-                let mut ui = TextInputModal::new("Edit Friendly Name", format!("Name for {}", phone))
+                let mut ui = TextInputModal::new("Edit Friendly Name", format!("Name for {phone}"))
                     .with_max_length(50);
 
                 if let Some(existing) = name {
@@ -122,9 +124,10 @@ impl ViewBase for PhonebookView {
                     .with_metadata(ModalMetadata::PhoneNumber(phone.clone()));
 
                 return Some(AppAction::SetModal(Some(modal)));
-            },
+            }
             KeyCode::Enter => {
-                let current_phone = self.selected_contact
+                let current_phone = self
+                    .selected_contact
                     .and_then(|i| self.recent_contacts.get(i))
                     .map(|(phone, _)| phone.clone());
 
@@ -137,34 +140,34 @@ impl ViewBase for PhonebookView {
                     self.input_buffer.clear();
 
                     return Some(AppAction::SetViewState {
-                        state: ViewStateRequest::view_messages(&*phone_number),
-                        dismiss_modal: false
+                        state: ViewStateRequest::view_messages(&phone_number),
+                        dismiss_modal: false,
                     });
                 }
-            },
+            }
             KeyCode::Down => {
                 self.select_next();
                 self.input_buffer.clear();
-            },
+            }
             KeyCode::Up => {
                 self.select_previous();
                 self.input_buffer.clear();
-            },
+            }
             KeyCode::Backspace => {
                 self.input_buffer.pop();
                 self.clear_selection();
-            },
+            }
             KeyCode::Char(c) if !c.is_control() => {
                 self.input_buffer.push(c);
                 self.clear_selection();
-            },
+            }
             _ => {}
         }
 
         None
     }
 
-    fn render<'ctx>(&mut self, frame: &mut Frame, theme: &Theme, _ctx: Self::Context<'ctx>) {
+    fn render(&mut self, frame: &mut Frame, theme: &Theme, _ctx: Self::Context<'_>) {
         let area = centered_rect(50, 35, frame.area());
         frame.render_widget(Clear, area);
 
@@ -178,23 +181,24 @@ impl ViewBase for PhonebookView {
         frame.render_widget(block, area);
 
         let mut constraints = vec![
-            Constraint::Length(1),   // Prompt
-            Constraint::Length(3),   // Input box
-            Constraint::Length(1),   // Help text
+            Constraint::Length(1), // Prompt
+            Constraint::Length(3), // Input box
+            Constraint::Length(1), // Help text
         ];
         if !self.recent_contacts.is_empty() {
             constraints.push(Constraint::Length(1)); // Spacing
             constraints.push(Constraint::Length(1)); // Recent contacts header
 
             // Get height for contacts box
-            let contacts_height = std::cmp::min(self.recent_contacts.len(), 8) as u16;
+            let contacts_height =
+                std::cmp::min(u16::try_from(self.recent_contacts.len()).unwrap_or(0), 8);
             constraints.push(Constraint::Length(contacts_height));
         }
         let layout = Layout::vertical(constraints).split(inner);
 
         // Prompt
-        let prompt = Paragraph::new("Phone number (international format):")
-            .style(theme.secondary_style());
+        let prompt =
+            Paragraph::new("Phone number (international format):").style(theme.secondary_style());
         frame.render_widget(prompt, layout[0]);
 
         // Input box
@@ -211,16 +215,16 @@ impl ViewBase for PhonebookView {
             theme.input_style()
         };
 
-        let input = Paragraph::new(input_text)
-            .style(input_style)
-            .block(
-                Block::bordered()
-                    .border_style(if self.input_buffer.is_empty() {
+        let input =
+            Paragraph::new(input_text)
+                .style(input_style)
+                .block(
+                    Block::bordered().border_style(if self.input_buffer.is_empty() {
                         theme.border_style()
                     } else {
                         theme.border_focused_style()
-                    })
-            );
+                    }),
+                );
         frame.render_widget(input, layout[1]);
 
         // Controls help
@@ -239,18 +243,18 @@ impl ViewBase for PhonebookView {
 
         // Recent contacts section, if there are some
         if !self.recent_contacts.is_empty() {
-            let header = Paragraph::new("Recent Contacts:")
-                .style(theme.secondary_style());
+            let header = Paragraph::new("Recent Contacts:").style(theme.secondary_style());
             frame.render_widget(header, layout[4]);
 
             let max_phone_length = self.get_max_phone_length();
-            let items: Vec<ListItem> = self.recent_contacts
+            let items: Vec<ListItem> = self
+                .recent_contacts
                 .iter()
                 .enumerate()
                 .map(|(i, (phone, name))| {
                     let content = if let Some(friendly_name) = name {
                         // Pad the phone number to align the separators
-                        format!("{:width$} ｜ {}", phone, friendly_name, width = max_phone_length)
+                        format!("{phone:max_phone_length$} ｜ {friendly_name}")
                     } else {
                         phone.to_string()
                     };
@@ -270,14 +274,20 @@ impl ViewBase for PhonebookView {
     }
 }
 impl ModalResponderComponent for PhonebookView {
-    fn handle_modal_response(&mut self, modal: &mut AppModal, response: ModalResponse) -> Option<AppAction> {
+    fn handle_modal_response(
+        &mut self,
+        modal: &mut AppModal,
+        response: ModalResponse,
+    ) -> Option<AppAction> {
         let phone_number = match &modal.metadata {
-            ModalMetadata::PhoneNumber(phone_number) if modal.id == "edit_friendly_name" => phone_number,
-            _ => return None
+            ModalMetadata::PhoneNumber(phone_number) if modal.id == "edit_friendly_name" => {
+                phone_number
+            }
+            _ => return None,
         };
         let friendly_name = match response {
             ModalResponse::TextInput(friendly_name) => friendly_name?,
-            _ => return None
+            _ => return None,
         };
 
         let http_client = self.context.0.clone();
@@ -286,23 +296,29 @@ impl ModalResponderComponent for PhonebookView {
         let sender = self.context.1.clone();
 
         tokio::spawn(async move {
-            if let Err(_) = http_client.set_friendly_name(&cloned_phone, Some(cloned_name)).await {
-
+            if http_client
+                .set_friendly_name(&cloned_phone, Some(cloned_name))
+                .await
+                .is_err()
+            {
                 // If the edit failed, show a notification.
                 // It's not worth changing to the error state just over a failed friendly name change.
                 let notification = NotificationType::GenericMessage {
                     color: Color::Red,
                     icon: "❌".to_string(),
                     title: "Edit Failed".to_string(),
-                    message: format!("Failed to change friendly name for {}", cloned_phone),
+                    message: format!("Failed to change friendly name for {cloned_phone}"),
                 };
                 let _ = sender.send(AppAction::ShowNotification(notification));
             }
         });
 
         // Update local cache
-        if let Some(contact) = self.recent_contacts.iter_mut()
-            .find(|(p, _)| p == phone_number) {
+        if let Some(contact) = self
+            .recent_contacts
+            .iter_mut()
+            .find(|(p, _)| p == phone_number)
+        {
             contact.1 = Some(friendly_name.to_string());
         }
 

@@ -1,23 +1,23 @@
-use std::sync::Arc;
-use std::time::Duration;
 use color_eyre::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
-use ratatui::DefaultTerminal;
 use ratatui::style::Color;
-use sms_client::Client;
+use ratatui::DefaultTerminal;
 use sms_client::http::HttpClient;
 use sms_client::ws::types::WebsocketMessage;
+use sms_client::Client;
+use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::time::interval;
 
-use crate::TerminalConfig;
 use crate::error::{AppError, AppResult};
 use crate::modals::{AppModal, ModalLoadBehaviour};
 use crate::theme::ThemeManager;
-use crate::types::{KeyDebouncer, KeyPress, AppAction, SmsMessage, DEBOUNCE_DURATION};
-use crate::ui::ViewBase;
+use crate::types::{AppAction, KeyDebouncer, KeyPress, SmsMessage, DEBOUNCE_DURATION};
 use crate::ui::notifications::{NotificationType, NotificationsView};
 use crate::ui::views::{ViewManager, ViewStateRequest};
+use crate::ui::ViewBase;
+use crate::TerminalConfig;
 
 pub type AppActionSender = mpsc::UnboundedSender<AppAction>;
 pub type AppContext = (Arc<HttpClient>, AppActionSender);
@@ -35,19 +35,18 @@ pub struct App {
     render_views: bool,
 
     #[cfg(feature = "sentry")]
-    sentry_enabled: bool
+    sentry_enabled: bool,
 }
 impl App {
     pub fn new(config: TerminalConfig) -> Result<Self> {
-        let client = Client::new(config.client)
-            .map_err(|e| AppError::ConfigError(e.to_string()))?;
+        let client = Client::new(config.client).map_err(|e| AppError::Config(e.to_string()))?;
 
         // Create return channel and context.
         let (tx, rx) = mpsc::unbounded_channel();
         let context: AppContext = (client.http_arc()?, tx.clone());
 
         Ok(Self {
-            view_manager: ViewManager::new(context)?,
+            view_manager: ViewManager::new(context),
             notifications: NotificationsView::new(),
             current_modal: None,
             theme_manager: ThemeManager::with_preset(config.theme),
@@ -59,11 +58,15 @@ impl App {
             render_views: true,
 
             #[cfg(feature = "sentry")]
-            sentry_enabled: config.sentry.is_some()
+            sentry_enabled: config.sentry.is_some(),
         })
     }
 
-    pub async fn run(mut self, mut terminal: DefaultTerminal, starting_view: ViewStateRequest) -> Result<()> {
+    pub async fn run(
+        mut self,
+        mut terminal: DefaultTerminal,
+        starting_view: ViewStateRequest,
+    ) -> Result<()> {
         if self.websocket_enabled {
             self.start_sms_websocket().await?;
         } else {
@@ -76,7 +79,7 @@ impl App {
                 message: "Live updates will not show!".to_string(),
             };
             self.notifications.add_notification(notification);
-        };
+        }
 
         // If we're running a +sentry build, we're expecting to run in some managed env
         // where the sentry dsn is always set. Therefore, if it isn't show a warning.
@@ -108,16 +111,16 @@ impl App {
 
                 // Views (bottom)
                 if self.render_views {
-                    self.view_manager.render(frame, &theme);
+                    self.view_manager.render(frame, theme);
                 }
 
                 // Modals
                 if let Some(modal) = &mut self.current_modal {
-                    modal.render(frame, &theme);
+                    modal.render(frame, theme);
                 }
 
                 // Notifications (top)
-                self.notifications.render(frame, &theme, ());
+                self.notifications.render(frame, theme, ());
             })?;
 
             // Poll for key input
@@ -145,27 +148,30 @@ impl App {
 
         let _ = crossterm::execute!(
             std::io::stdout(),
-            crossterm::terminal::SetTitle(
-                format!("SMS Terminal v{} ｜ {}", crate::FEATURE_VERSION, self.view_manager)
-            ),
+            crossterm::terminal::SetTitle(format!(
+                "SMS Terminal v{} ｜ {}",
+                crate::FEATURE_VERSION,
+                self.view_manager
+            )),
         );
     }
 
     async fn handle_app_action(&mut self, action: AppAction) -> bool {
         match action {
-            AppAction::SetViewState { state, dismiss_modal } => {
-
+            AppAction::SetViewState {
+                state,
+                dismiss_modal,
+            } => {
                 // Allow the state change to dismiss the current modal.
                 // This is useful for transitioning out of a loading state.
                 if self.current_modal.is_some() && dismiss_modal {
                     self.set_modal(None);
                 }
                 self.transition_view(state).await;
-            },
+            }
             AppAction::SetModal(modal) => self.set_modal(modal),
             AppAction::Exit => return true,
             AppAction::HandleIncomingMessage(sms_message) => {
-
                 // Try to add the incoming message to the current view
                 let msg = SmsMessage::from(&sms_message);
                 let show_notification = !self.view_manager.try_add_message(&msg);
@@ -174,24 +180,30 @@ impl App {
                 if show_notification && !sms_message.is_outgoing {
                     let notification = NotificationType::IncomingMessage {
                         phone: sms_message.phone_number.clone(),
-                        content: msg.content
+                        content: msg.content,
                     };
                     self.notifications.add_notification(notification);
                 }
-            },
+            }
             AppAction::DeliveryFailure(_) => unimplemented!("Oops!"),
             AppAction::ShowNotification(notification) => {
-                self.notifications.add_notification(notification)
-            },
-            AppAction::ShowError { message, dismissible } => {
-
+                self.notifications.add_notification(notification);
+            }
+            AppAction::ShowError {
+                message,
+                dismissible,
+            } => {
                 // If another error is being displayed, only overwrite it if
                 // that one is dismissable but this one isn't. Otherwise, ignore.
                 if self.view_manager.should_show_error(dismissible) {
-                    self.transition_view(ViewStateRequest::Error { message, dismissible }).await;
+                    self.transition_view(ViewStateRequest::Error {
+                        message,
+                        dismissible,
+                    })
+                    .await;
                 }
             }
-        };
+        }
 
         false
     }
@@ -216,7 +228,6 @@ impl App {
         if let Some(modal) = &mut self.current_modal {
             let response = self.view_manager.handle_modal_response(modal, key);
             if response.is_some() {
-
                 // Dismiss the current modal if some response was returned.
                 self.set_modal(None);
             }
@@ -234,30 +245,28 @@ impl App {
 
     fn set_modal(&mut self, modal: Option<AppModal>) {
         // Allow the modal to determine if background views should render.
-        self.render_views = modal.as_ref()
-            .map(|m| m.should_render_views())
-            .unwrap_or(true);
+        self.render_views = modal
+            .as_ref()
+            .is_none_or(super::modals::AppModal::should_render_views);
 
         if let Some(ref modal) = modal {
-
             // Call modal loader, which can take the current AppContext for async loading.
             // This is to ensure that the render + async loop is never blocked.
-            match modal.load() {
-                ModalLoadBehaviour::Function(cb) => {
+            if let ModalLoadBehaviour::Function(cb) = modal.load() {
+                // We can use expect here since the client is already checked in new.
+                // This just prevents us having to propagate a Result that will never Err.
+                let http = self
+                    .sms_client
+                    .http_arc()
+                    .expect("Missing HttpClient within SMS Client!");
 
-                    // We can use expect here since the client is already checked in new.
-                    // This just prevents us having to propagate a Result that will never Err.
-                    let http = self.sms_client.http_arc().expect("Missing HttpClient within SMS Client!");
-                    
-                    let (action, should_block) = cb((http, self.message_sender.clone()));
-                    if let Some(action) = action {
-                        let _ = self.message_sender.send(action);
-                    }
-                    if should_block {
-                        return;
-                    }
-                },
-                _ => { }
+                let (action, should_block) = cb((http, self.message_sender.clone()));
+                if let Some(action) = action {
+                    let _ = self.message_sender.send(action);
+                }
+                if should_block {
+                    return;
+                }
             }
         }
 
@@ -266,34 +275,42 @@ impl App {
 
     async fn start_sms_websocket(&self) -> AppResult<()> {
         let ws_sender = self.message_sender.clone();
-        self.sms_client.on_message_simple(move |message| {
-            match message {
+        self.sms_client
+            .on_message_simple(move |message| match message {
                 WebsocketMessage::IncomingMessage(sms) | WebsocketMessage::OutgoingMessage(sms) => {
                     let _ = ws_sender.send(AppAction::HandleIncomingMessage(sms));
-                },
+                }
                 WebsocketMessage::ModemStatusUpdate { previous, current } => {
                     let notification = NotificationType::OnlineStatus { previous, current };
                     let _ = ws_sender.send(AppAction::ShowNotification(notification));
-                },
-                WebsocketMessage::WebsocketConnectionUpdate { connected, reconnect } => {
-                    let notification = NotificationType::WebSocketConnectionUpdate { connected, reconnect };
+                }
+                WebsocketMessage::WebsocketConnectionUpdate {
+                    connected,
+                    reconnect,
+                } => {
+                    let notification = NotificationType::WebSocketConnectionUpdate {
+                        connected,
+                        reconnect,
+                    };
                     let _ = ws_sender.send(AppAction::ShowNotification(notification));
-                },
-                _ => { }
-            }
-        }).await?;
+                }
+                _ => {}
+            })
+            .await?;
 
         // Create websocket worker task.
         let client = self.sms_client.clone();
         let task_sender = self.message_sender.clone();
         tokio::spawn(async move {
-
             // Handle early termination or errors on starting.
             let (message, dismissible) = match client.start_blocking_websocket().await {
-                Ok(_) => ("The WebSocket has been terminated!".to_string(), true),
-                Err(e) => (e.to_string(), false)
+                Ok(()) => ("The WebSocket has been terminated!".to_string(), true),
+                Err(e) => (e.to_string(), false),
             };
-            let _ = task_sender.send(AppAction::ShowError { message, dismissible });
+            let _ = task_sender.send(AppAction::ShowError {
+                message,
+                dismissible,
+            });
         });
 
         Ok(())

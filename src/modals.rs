@@ -1,44 +1,44 @@
-use crossterm::event::KeyEvent;
-use ratatui::Frame;
 use crate::app::AppContext;
 use crate::theme::Theme;
 use crate::types::AppAction;
 use crate::ui::modals::ModalComponent;
+use crossterm::event::KeyEvent;
+use ratatui::Frame;
 
 /// Determines how a modal should be loaded after it's set.
 /// The views always have priority, and therefore it cannot
 /// block the main render or async loops.
 pub enum ModalLoadBehaviour {
     Function(Box<dyn FnOnce(AppContext) -> (Option<AppAction>, bool) + Send + Sync>), // return_action, should_block
-    None
+    None,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ModalMetadata {
     SendMessage(String, String), // phone_number, message_content
     PhoneNumber(String),
-    None
+    None,
 }
 
 #[derive(Debug, PartialEq)]
 pub enum ModalResponse {
     Dismissed,
     Confirmed,
-    TextInput(Option<String>)
+    TextInput(Option<String>),
 }
 
 #[derive(Debug)]
 pub struct AppModal {
     pub id: String,
     pub metadata: ModalMetadata,
-    inner: Box<dyn ModalComponent>
+    inner: Box<dyn ModalComponent>,
 }
 impl AppModal {
     pub fn new<T: ModalComponent + 'static>(id: impl Into<String>, modal: T) -> Self {
         Self {
             id: id.into(),
             metadata: ModalMetadata::None,
-            inner: Box::new(modal)
+            inner: Box::new(modal),
         }
     }
 
@@ -49,7 +49,7 @@ impl AppModal {
 
     #[inline]
     pub fn render(&mut self, frame: &mut Frame, theme: &Theme) {
-        self.inner.render(frame, theme)
+        self.inner.render(frame, theme);
     }
 
     #[inline]

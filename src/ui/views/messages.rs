@@ -1,13 +1,13 @@
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::{Constraint, Layout, Margin, Rect};
 use ratatui::style::{Modifier, Style, Stylize};
 use ratatui::text::{Line, Text};
 use ratatui::widgets::{
-    Block, BorderType, Cell, HighlightSpacing, Paragraph, Row, Scrollbar,
-    ScrollbarOrientation, ScrollbarState, Table, TableState,
+    Block, BorderType, Cell, HighlightSpacing, Paragraph, Row, Scrollbar, ScrollbarOrientation,
+    ScrollbarState, Table, TableState,
 };
 use ratatui::Frame;
 use sms_client::http::types::HttpPaginationOptions;
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use unicode_width::UnicodeWidthStr;
 
 use crate::app::AppContext;
@@ -16,8 +16,8 @@ use crate::modals::AppModal;
 use crate::theme::Theme;
 use crate::types::{AppAction, SmsMessage};
 use crate::ui::modals::delivery_reports::DeliveryReportsModal;
-use crate::ui::ViewBase;
 use crate::ui::views::ViewStateRequest;
+use crate::ui::ViewBase;
 
 // Pages of 20 items, load next (max-5)
 const ITEM_HEIGHT: usize = 4;
@@ -35,7 +35,7 @@ pub struct MessagesView {
     reversed: bool,
     current_offset: u64,
     total_messages: usize,
-    is_selected_outgoing: bool
+    is_selected_outgoing: bool,
 }
 impl MessagesView {
     pub fn with_context(context: AppContext) -> Self {
@@ -50,12 +50,16 @@ impl MessagesView {
             reversed: false,
             current_offset: 0,
             total_messages: 0,
-            is_selected_outgoing: false
+            is_selected_outgoing: false,
         }
     }
 
     pub fn add_live_message(&mut self, message: &SmsMessage) {
-        if self.messages.iter().any(|m| m.message_id == message.message_id) {
+        if self
+            .messages
+            .iter()
+            .any(|m| m.message_id == message.message_id)
+        {
             return;
         }
 
@@ -88,7 +92,12 @@ impl MessagesView {
             .with_reverse(self.reversed);
 
         self.is_loading = true;
-        let result = self.context.0.as_ref().get_messages(phone_number, Some(pagination)).await;
+        let result = self
+            .context
+            .0
+            .as_ref()
+            .get_messages(phone_number, Some(pagination))
+            .await;
         self.is_loading = false;
 
         match result {
@@ -101,10 +110,10 @@ impl MessagesView {
                 }
 
                 // If there is still a full page, there could be more results
-                self.has_more = count == MESSAGES_PER_PAGE as usize;
+                self.has_more = count == usize::try_from(MESSAGES_PER_PAGE).unwrap_or(count);
                 Ok(())
             }
-            Err(e) => Err(AppError::HttpError(e))
+            Err(e) => Err(AppError::Http(e)),
         }
     }
 
@@ -125,7 +134,8 @@ impl MessagesView {
     }
 
     fn update_constraints(&mut self) {
-        let id_len = self.messages
+        let id_len = self
+            .messages
             .iter()
             .map(|m| m.identifier.width())
             .max()
@@ -135,9 +145,16 @@ impl MessagesView {
         let direction_len = 8;
         let timestamp_len = 16;
 
-        let content_len = self.messages
+        let content_len = self
+            .messages
             .iter()
-            .map(|m| m.content.lines().map(|l| l.width()).max().unwrap_or(0))
+            .map(|m| {
+                m.content
+                    .lines()
+                    .map(unicode_width::UnicodeWidthStr::width)
+                    .max()
+                    .unwrap_or(0)
+            })
             .max()
             .unwrap_or(50)
             .min(80);
@@ -145,10 +162,10 @@ impl MessagesView {
         // Update the longest text item for each column for
         // table_render to try and keep the values roughly centered.
         self.longest_item_lens = (
-            id_len as u16,
+            u16::try_from(id_len).unwrap_or(0),
             direction_len,
             timestamp_len,
-            content_len as u16,
+            u16::try_from(content_len).unwrap_or(0),
         );
     }
 
@@ -198,9 +215,7 @@ impl MessagesView {
     }
 
     fn update_selection(&mut self, idx: usize) {
-        self.is_selected_outgoing = self.messages.get(idx)
-            .map(|m| m.is_outgoing)
-            .unwrap_or(false);
+        self.is_selected_outgoing = self.messages.get(idx).is_some_and(|m| m.is_outgoing);
     }
 
     fn next_column(&mut self) {
@@ -212,9 +227,7 @@ impl MessagesView {
     }
 
     fn render_table(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
-        let header_style = Style::default()
-            .fg(theme.header_fg)
-            .bg(theme.header_bg);
+        let header_style = Style::default().fg(theme.header_fg).bg(theme.header_bg);
         let selected_row_style = Style::default()
             .add_modifier(Modifier::REVERSED)
             .fg(theme.row_selected_fg);
@@ -243,7 +256,7 @@ impl MessagesView {
                     let text = if idx == 3 && content.len() > 80 {
                         format!("\n{}\n", textwrap::fill(content, 80))
                     } else {
-                        format!("\n{}\n", content)
+                        format!("\n{content}\n")
                     };
                     Cell::from(Text::from(text))
                 })
@@ -262,18 +275,18 @@ impl MessagesView {
                 Constraint::Min(self.longest_item_lens.3),
             ],
         )
-            .header(header)
-            .row_highlight_style(selected_row_style)
-            .column_highlight_style(selected_col_style)
-            .cell_highlight_style(selected_cell_style)
-            .highlight_symbol(Text::from(vec![
-                Line::from(""),
-                Line::from(bar),
-                Line::from(bar),
-                Line::from(""),
-            ]))
-            .bg(theme.bg)
-            .highlight_spacing(HighlightSpacing::Always);
+        .header(header)
+        .row_highlight_style(selected_row_style)
+        .column_highlight_style(selected_col_style)
+        .cell_highlight_style(selected_cell_style)
+        .highlight_symbol(Text::from(vec![
+            Line::from(""),
+            Line::from(bar),
+            Line::from(bar),
+            Line::from(""),
+        ]))
+        .bg(theme.bg)
+        .highlight_spacing(HighlightSpacing::Always);
 
         frame.render_stateful_widget(t, area, &mut self.state);
     }
@@ -299,7 +312,7 @@ impl MessagesView {
                 "(Esc) back | (r) reload | (c) compose SMS | (m) delivery reports".to_string()
             } else {
                 "(Esc) back | (r) reload | (c) compose SMS".to_string()
-            }
+            },
         ];
 
         // Add sort order indicator
@@ -319,15 +332,14 @@ impl MessagesView {
 
             footer_lines.push(format!(
                 "💬 {} | ✉️ {} messages | {} | {}",
-                phone_number,
-                self.total_messages,
-                order_indicator,
-                status
+                phone_number, self.total_messages, order_indicator, status
             ));
         } else if self.is_loading {
             footer_lines.push("⟳ Loading messages...".to_string());
         } else if !phone_number.is_empty() {
-            footer_lines.push(format!("💬 {} | No messages found | {}", phone_number, order_indicator));
+            footer_lines.push(format!(
+                "💬 {phone_number} | No messages found | {order_indicator}"
+            ));
         }
 
         let info_footer = Paragraph::new(Text::from(footer_lines.join("\n")))
@@ -344,14 +356,14 @@ impl MessagesView {
 impl ViewBase for MessagesView {
     type Context<'ctx> = (&'ctx String, bool);
 
-    async fn load<'ctx>(&mut self, ctx: Self::Context<'ctx>) -> AppResult<()> {
+    async fn load(&mut self, ctx: Self::Context<'_>) -> AppResult<()> {
         self.reversed = ctx.1;
         self.reload(ctx.0).await?;
-        self.is_selected_outgoing = self.messages.first().map(|m| m.is_outgoing).unwrap_or(false);
+        self.is_selected_outgoing = self.messages.first().is_some_and(|m| m.is_outgoing);
         Ok(())
     }
 
-    async fn handle_key<'ctx>(&mut self, key: KeyEvent, ctx: Self::Context<'ctx>) -> Option<AppAction> {
+    async fn handle_key(&mut self, key: KeyEvent, ctx: Self::Context<'_>) -> Option<AppAction> {
         let view_state = match key.code {
             KeyCode::Esc => {
                 self.reset();
@@ -359,63 +371,63 @@ impl ViewBase for MessagesView {
                 // This should go back to the phonebook, not default (main menu)
                 // since you can only get here through the phonebook anyway.
                 Some(ViewStateRequest::Phonebook)
-            },
-            KeyCode::Char('c') | KeyCode::Char('C') => {
-                Some(ViewStateRequest::Compose {
-                    phone_number: ctx.0.to_string()
-                })
-            },
-            KeyCode::Char('r') | KeyCode::Char('R') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            }
+            KeyCode::Char('c' | 'C') => Some(ViewStateRequest::Compose {
+                phone_number: ctx.0.to_string(),
+            }),
+            KeyCode::Char('r' | 'R') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.reset();
-                Some(ViewStateRequest::Messages { phone_number: ctx.0.to_string(), reversed: !self.reversed })
+                Some(ViewStateRequest::Messages {
+                    phone_number: ctx.0.to_string(),
+                    reversed: !self.reversed,
+                })
+            }
+            KeyCode::Char('r' | 'R') => match self.reload(ctx.0).await {
+                Ok(()) => None,
+                Err(e) => Some(ViewStateRequest::from(e)),
             },
-            KeyCode::Char('r') | KeyCode::Char('R') => {
-                match self.reload(ctx.0).await {
-                    Ok(()) => None,
-                    Err(e) => Some(ViewStateRequest::from(e))
-                }
-            },
-            KeyCode::Char('m') | KeyCode::Char('M') => {
-                let message = self.messages.get(
-                    self.state.selected()?
-                )?;
+            KeyCode::Char('m' | 'M') => {
+                let message = self.messages.get(self.state.selected()?)?;
                 if !message.is_outgoing {
                     return None;
                 }
 
                 // Show uninitialized delivery report, which will trigger it's loading.
-                let modal = AppModal::new("delivery_reports", DeliveryReportsModal::new(message.clone()));
-                return Some(AppAction::SetModal(Some(modal)))
-            },
+                let modal = AppModal::new(
+                    "delivery_reports",
+                    DeliveryReportsModal::new(message.clone()),
+                );
+                return Some(AppAction::SetModal(Some(modal)));
+            }
             KeyCode::Down => {
                 self.next_row();
                 match self.check_load_more(ctx.0).await {
                     Ok(()) => None,
-                    Err(e) => Some(ViewStateRequest::from(e))
+                    Err(e) => Some(ViewStateRequest::from(e)),
                 }
-            },
+            }
             KeyCode::Up => {
                 self.previous_row();
                 None
-            },
+            }
             KeyCode::Right => {
                 self.next_column();
                 None
-            },
+            }
             KeyCode::Left => {
                 self.previous_column();
                 None
-            },
-            _ => None
+            }
+            _ => None,
         };
 
         // If a view state is retuned, make it into a state change.
         view_state.map(|state| AppAction::SetViewState {
             state,
-            dismiss_modal: false
+            dismiss_modal: false,
         })
     }
-    fn render<'ctx>(&mut self, frame: &mut Frame, theme: &Theme, ctx: Self::Context<'ctx>) {
+    fn render(&mut self, frame: &mut Frame, theme: &Theme, ctx: Self::Context<'_>) {
         let layout = Layout::vertical([Constraint::Min(5), Constraint::Length(5)]);
         let rects = layout.split(frame.area());
 

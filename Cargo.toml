@@ -1,6 +1,6 @@
 [package]
 name = "sms-terminal"
-version = "0.9.3"
+version = "1.0.1"
 description = "TUI for SMS-API - send/receive SMS, view message history, and control GSM modems from your terminal."
 authors = ["morgverd <morgverd@gmail.com>"]
 license = "AGPL-3.0-only"

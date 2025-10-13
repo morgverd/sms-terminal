@@ -1,20 +1,22 @@
-use ratatui::style::{Color, Style};
 use ratatui::style::palette::tailwind;
+use ratatui::style::{Color, Style};
 use serde::{Deserialize, Serialize};
 
 #[derive(clap::ValueEnum, Serialize, Deserialize, Debug, Clone, Copy)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum PresetTheme {
+    #[default]
     Emerald,
     Blue,
     Zinc,
     Indigo,
     Red,
     Amber,
-    Pink
+    Pink,
 }
 impl PresetTheme {
-    pub fn palette(&self) -> tailwind::Palette {
+    pub fn palette(self) -> tailwind::Palette {
         match self {
             PresetTheme::Emerald => tailwind::EMERALD,
             PresetTheme::Blue => tailwind::BLUE,
@@ -22,7 +24,7 @@ impl PresetTheme {
             PresetTheme::Indigo => tailwind::INDIGO,
             PresetTheme::Red => tailwind::RED,
             PresetTheme::Amber => tailwind::AMBER,
-            PresetTheme::Pink => tailwind::PINK
+            PresetTheme::Pink => tailwind::PINK,
         }
     }
 
@@ -34,13 +36,8 @@ impl PresetTheme {
             PresetTheme::Indigo,
             PresetTheme::Red,
             PresetTheme::Amber,
-            PresetTheme::Pink
+            PresetTheme::Pink,
         ]
-    }
-}
-impl Default for PresetTheme {
-    fn default() -> Self {
-        PresetTheme::Emerald
     }
 }
 
@@ -72,7 +69,7 @@ pub struct Theme {
     // Input specific
     pub input_bg: Color,
     pub input_fg: Color,
-    pub input_cursor: Color
+    pub input_cursor: Color,
 }
 impl Theme {
     pub fn new(palette: &tailwind::Palette) -> Self {
@@ -189,7 +186,7 @@ pub struct ThemeManager {
     modify_background: bool,
     static_themes: Vec<Option<Theme>>,
     dynamic_themes: Vec<Option<Theme>>,
-    current_index: usize
+    current_index: usize,
 }
 impl ThemeManager {
     pub fn with_preset(preset: PresetTheme) -> Self {
@@ -202,7 +199,7 @@ impl ThemeManager {
             current_index: PresetTheme::variants()
                 .iter()
                 .position(|&p| std::mem::discriminant(&p) == std::mem::discriminant(&preset))
-                .unwrap_or(0)
+                .unwrap_or(0),
         }
     }
 

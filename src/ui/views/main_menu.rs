@@ -7,14 +7,14 @@ use ratatui::Frame;
 use crate::error::AppResult;
 use crate::theme::Theme;
 use crate::types::AppAction;
-use crate::ui::{centered_rect, ViewBase};
 use crate::ui::views::ViewStateRequest;
+use crate::ui::{centered_rect, ViewBase};
 
 pub struct MenuItem {
     pub label: String,
     pub description: String,
     pub action_fn: Box<dyn Fn() -> AppAction>,
-    pub key_hint: String
+    pub key_hint: String,
 }
 impl MenuItem {
     pub fn new<F>(label: &str, description: &str, action_fn: F, key_hint: &str) -> Self
@@ -25,7 +25,7 @@ impl MenuItem {
             label: label.to_string(),
             description: description.to_string(),
             action_fn: Box::new(action_fn),
-            key_hint: key_hint.to_string()
+            key_hint: key_hint.to_string(),
         }
     }
 
@@ -37,7 +37,7 @@ impl MenuItem {
                 state: state.clone(),
                 dismiss_modal: false,
             },
-            key_hint
+            key_hint,
         )
     }
 
@@ -48,7 +48,7 @@ impl MenuItem {
 
 pub struct MainMenuView {
     menu_items: Vec<MenuItem>,
-    selected_index: usize
+    selected_index: usize,
 }
 impl MainMenuView {
     pub fn new() -> Self {
@@ -57,25 +57,20 @@ impl MainMenuView {
                 "Phonebook",
                 "Send and receive messages from contacts",
                 ViewStateRequest::Phonebook,
-                "P"
+                "P",
             ),
             MenuItem::view(
                 "Device Info",
                 "View device signal strength, battery level and other info",
                 ViewStateRequest::DeviceInfo,
-                "D"
+                "D",
             ),
-            MenuItem::new(
-                "Exit",
-                "Close the terminal",
-                || AppAction::Exit,
-                "Q"
-            )
+            MenuItem::new("Exit", "Close the terminal", || AppAction::Exit, "Q"),
         ];
 
         Self {
             menu_items,
-            selected_index: 0
+            selected_index: 0,
         }
     }
 
@@ -96,51 +91,53 @@ impl MainMenuView {
     }
 
     fn get_selected_action(&self) -> Option<AppAction> {
-        self.menu_items.get(self.selected_index).map(|item| item.execute())
+        self.menu_items
+            .get(self.selected_index)
+            .map(MenuItem::execute)
     }
 
     fn handle_key_shortcut(&self, key: char) -> Option<AppAction> {
         self.menu_items
             .iter()
             .find(|item| {
-                item.key_hint.to_lowercase().chars().next() == Some(key.to_ascii_lowercase())
+                item.key_hint
+                    .to_lowercase()
+                    .starts_with(key.to_ascii_lowercase())
             })
-            .map(|item| item.execute())
+            .map(MenuItem::execute)
     }
 }
 impl ViewBase for MainMenuView {
     type Context<'ctx> = ();
 
-    async fn load<'ctx>(&mut self, _ctx: Self::Context<'ctx>) -> AppResult<()> {
+    async fn load(&mut self, _ctx: Self::Context<'_>) -> AppResult<()> {
         self.selected_index = 0;
         Ok(())
     }
 
-    async fn handle_key<'ctx>(&mut self, key: KeyEvent, _ctx: Self::Context<'ctx>) -> Option<AppAction> {
+    async fn handle_key(&mut self, key: KeyEvent, _ctx: Self::Context<'_>) -> Option<AppAction> {
         match key.code {
-            KeyCode::Char('c') | KeyCode::Char('C') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            KeyCode::Char('c' | 'C') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 Some(AppAction::Exit)
-            },
-            KeyCode::Enter | KeyCode::Char(' ') => {
-                self.get_selected_action()
-            },
+            }
+            KeyCode::Enter | KeyCode::Char(' ') => self.get_selected_action(),
             KeyCode::Down => {
                 self.select_next();
                 None
-            },
+            }
             KeyCode::Up => {
                 self.select_previous();
                 None
-            },
+            }
             KeyCode::Char(c) => {
                 // Handle keyboard shortcuts
                 self.handle_key_shortcut(c)
-            },
-            _ => None
+            }
+            _ => None,
         }
     }
 
-    fn render<'ctx>(&mut self, frame: &mut Frame, theme: &Theme, _ctx: Self::Context<'ctx>) {
+    fn render(&mut self, frame: &mut Frame, theme: &Theme, _ctx: Self::Context<'_>) {
         let area = centered_rect(60, 50, frame.area());
         frame.render_widget(Clear, area);
 
@@ -157,20 +154,24 @@ impl ViewBase for MainMenuView {
 
         // Main layout
         let layout = Layout::vertical([
-            Constraint::Length(2),   // Top spacing
-            Constraint::Length(1),   // Welcome text
-            Constraint::Length(2),   // Spacing after welcome
-            Constraint::Min(0),      // Menu items (flexible)
-            Constraint::Length(2),   // Spacing before help
-            Constraint::Length(1),   // Theme controls hint
-            Constraint::Length(1),   // Help text
-            Constraint::Length(1),   // Bottom spacing
+            Constraint::Length(2), // Top spacing
+            Constraint::Length(1), // Welcome text
+            Constraint::Length(2), // Spacing after welcome
+            Constraint::Min(0),    // Menu items (flexible)
+            Constraint::Length(2), // Spacing before help
+            Constraint::Length(1), // Theme controls hint
+            Constraint::Length(1), // Help text
+            Constraint::Length(1), // Bottom spacing
         ])
-            .split(inner);
+        .split(inner);
 
         // Welcome
         let welcome = Paragraph::new("Select an option to continue:")
-            .style(Style::default().fg(theme.text_accent).add_modifier(Modifier::BOLD))
+            .style(
+                Style::default()
+                    .fg(theme.text_accent)
+                    .add_modifier(Modifier::BOLD),
+            )
             .alignment(Alignment::Center);
         frame.render_widget(welcome, layout[1]);
 
@@ -190,9 +191,9 @@ impl ViewBase for MainMenuView {
             let y_offset = menu_start_y + (i * item_height);
             let item_rect = Rect {
                 x: menu_area.x + 4, // + horizontal padding
-                y: menu_area.y + y_offset as u16,
+                y: menu_area.y + u16::try_from(y_offset).unwrap_or(0),
                 width: menu_area.width.saturating_sub(8), // - padding
-                height: item_height as u16
+                height: u16::try_from(item_height).unwrap_or(0),
             };
 
             let is_selected = i == self.selected_index;
@@ -201,10 +202,10 @@ impl ViewBase for MainMenuView {
                     x: menu_area.x + 2,
                     y: item_rect.y,
                     width: menu_area.width.saturating_sub(4),
-                    height: 2 // Only cover the title and description lines
+                    height: 2, // Only cover the title and description lines
                 };
-                let bg_block = Block::new()
-                    .style(Style::default().bg(theme.text_accent.into()).fg(Color::Black));
+                let bg_block =
+                    Block::new().style(Style::default().bg(theme.text_accent).fg(Color::Black));
                 frame.render_widget(bg_block, selection_bg);
             }
 
@@ -213,31 +214,35 @@ impl ViewBase for MainMenuView {
                 Constraint::Length(1), // Main label line
                 Constraint::Length(1), // Description line
                 Constraint::Length(1), // Empty line for spacing
-                Constraint::Length(1)  // Separator line
+                Constraint::Length(1), // Separator line
             ])
-                .split(item_rect);
+            .split(item_rect);
 
             let label_style = if is_selected {
-                Style::default().fg(Color::Black).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::Black)
+                    .add_modifier(Modifier::BOLD)
             } else {
                 theme.primary_style().add_modifier(Modifier::BOLD)
             };
 
             let label_text = format!("  ({})  {}", item.key_hint, item.label);
-            let label = Paragraph::new(label_text)
-                .style(label_style);
+            let label = Paragraph::new(label_text).style(label_style);
             frame.render_widget(label, item_layout[0]);
 
             // Description
             let desc_text = format!("       {}", item.description);
             let desc_style = if is_selected {
-                Style::default().fg(Color::Black).add_modifier(Modifier::ITALIC)
+                Style::default()
+                    .fg(Color::Black)
+                    .add_modifier(Modifier::ITALIC)
             } else {
-                Style::default().fg(theme.text_muted).add_modifier(Modifier::ITALIC)
+                Style::default()
+                    .fg(theme.text_muted)
+                    .add_modifier(Modifier::ITALIC)
             };
 
-            let description = Paragraph::new(desc_text)
-                .style(desc_style);
+            let description = Paragraph::new(desc_text).style(desc_style);
             frame.render_widget(description, item_layout[1]);
 
             // Visual separator between items (except for the last one)
@@ -245,7 +250,7 @@ impl ViewBase for MainMenuView {
                 let separator_width = (item_rect.width as usize).saturating_sub(8);
                 let separator_text = "─".repeat(separator_width);
                 let separator = Paragraph::new(separator_text)
-                    .style(Style::default().fg(theme.text_muted.into()))
+                    .style(Style::default().fg(theme.text_muted))
                     .alignment(Alignment::Center);
                 frame.render_widget(separator, item_layout[3]);
             }
@@ -254,13 +259,21 @@ impl ViewBase for MainMenuView {
         // Controls hint
         let help_text = "↑↓ navigate, (Enter) select, (Ctrl+C) to quit";
         let help = Paragraph::new(help_text)
-            .style(Style::default().fg(theme.text_muted).add_modifier(Modifier::ITALIC))
+            .style(
+                Style::default()
+                    .fg(theme.text_muted)
+                    .add_modifier(Modifier::ITALIC),
+            )
             .alignment(Alignment::Center);
         frame.render_widget(help, layout[5]);
 
         // Theme hint
         let theme_hint = Paragraph::new("(F10) change theme color, (F11) toggle background fill")
-            .style(Style::default().fg(theme.text_muted).add_modifier(Modifier::ITALIC))
+            .style(
+                Style::default()
+                    .fg(theme.text_muted)
+                    .add_modifier(Modifier::ITALIC),
+            )
             .alignment(Alignment::Center);
         frame.render_widget(theme_hint, layout[6]);
     }

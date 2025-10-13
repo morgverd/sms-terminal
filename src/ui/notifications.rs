@@ -1,57 +1,60 @@
+use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::{Alignment, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Clear, Paragraph, Wrap};
 use ratatui::Frame;
-use std::time::{Duration, Instant};
-use crossterm::event::{KeyCode, KeyEvent};
 use sms_client::types::ModemStatusUpdateState;
+use std::time::{Duration, Instant};
 
 use crate::error::AppResult;
 use crate::theme::Theme;
 use crate::types::AppAction;
-use crate::ui::ViewBase;
 use crate::ui::views::ViewStateRequest;
+use crate::ui::ViewBase;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum NotificationType {
     IncomingMessage {
         phone: String,
-        content: String
+        content: String,
     },
     OnlineStatus {
         previous: ModemStatusUpdateState,
-        current: ModemStatusUpdateState
+        current: ModemStatusUpdateState,
     },
     WebSocketConnectionUpdate {
         connected: bool,
-        reconnect: bool
+        reconnect: bool,
     },
     GenericMessage {
         color: Color,
         icon: String,
         title: String,
-        message: String
-    }
+        message: String,
+    },
 }
 
 #[derive(Clone)]
 pub struct NotificationMessage {
     pub notification_type: NotificationType,
-    pub timestamp: Instant
+    pub timestamp: Instant,
 }
 impl NotificationMessage {
     pub fn get_phone_number(&self) -> Option<String> {
         match &self.notification_type {
             NotificationType::IncomingMessage { phone, .. } => Some(phone.clone()),
-            NotificationType::OnlineStatus { .. } => None,
-            NotificationType::WebSocketConnectionUpdate { .. } => None,
-            NotificationType::GenericMessage { .. } => None
+            NotificationType::OnlineStatus { .. }
+            | NotificationType::WebSocketConnectionUpdate { .. }
+            | NotificationType::GenericMessage { .. } => None,
         }
     }
 
     pub fn can_view(&self) -> bool {
-        matches!(self.notification_type, NotificationType::IncomingMessage { .. })
+        matches!(
+            self.notification_type,
+            NotificationType::IncomingMessage { .. }
+        )
     }
 
     pub fn is_expired(&self, display_duration: Duration) -> bool {
@@ -63,22 +66,93 @@ struct NotificationStyle {
     icon: String,
     title: String,
     border_color: Color,
-    title_color: Color
+    title_color: Color,
 }
 
 struct RenderContext<'a> {
     theme: &'a Theme,
     opacity_modifier: Modifier,
-    is_top: bool
+    is_top: bool,
+}
+
+fn get_notification_style(notification: &NotificationMessage, theme: &Theme) -> NotificationStyle {
+    match &notification.notification_type {
+        NotificationType::IncomingMessage { .. } => NotificationStyle {
+            icon: "📨".to_string(),
+            title: "New Message".to_string(),
+            border_color: theme.text_accent,
+            title_color: theme.text_accent,
+        },
+        NotificationType::OnlineStatus {
+            current: current_state,
+            ..
+        } => {
+            let (icon, color) = match current_state {
+                ModemStatusUpdateState::Online => ("🟢", Color::Green),
+                ModemStatusUpdateState::Offline => ("🔴", Color::Red),
+                ModemStatusUpdateState::Startup | ModemStatusUpdateState::ShuttingDown => {
+                    ("🟡", Color::Yellow)
+                }
+            };
+            NotificationStyle {
+                icon: icon.to_string(),
+                title: "Status Change".to_string(),
+                border_color: color,
+                title_color: color,
+            }
+        }
+        NotificationType::WebSocketConnectionUpdate {
+            connected,
+            reconnect,
+        } => {
+            let (icon, title, color) = match (connected, reconnect) {
+                (true, _) => ("🔗", "WebSocket Connected", Color::Green),
+                (false, true) => ("🔄", "WebSocket Reconnecting", Color::Yellow),
+                (false, false) => ("⚠️", "WebSocket Disconnected", Color::Red),
+            };
+            NotificationStyle {
+                icon: icon.to_string(),
+                title: title.into(),
+                border_color: color,
+                title_color: color,
+            }
+        }
+        NotificationType::GenericMessage {
+            icon, color, title, ..
+        } => NotificationStyle {
+            title: title.into(),
+            icon: icon.clone(),
+            border_color: *color,
+            title_color: *color,
+        },
+    }
+}
+
+fn calculate_notification_height(notification: &NotificationMessage, is_top: bool) -> u16 {
+    let base_height = match &notification.notification_type {
+        NotificationType::IncomingMessage { content, .. } => {
+            let content_lines = (u16::try_from(content.len()).unwrap_or(0) / 45).clamp(1, 3);
+            5 + content_lines
+        }
+        NotificationType::OnlineStatus { .. }
+        | NotificationType::WebSocketConnectionUpdate { .. }
+        | NotificationType::GenericMessage { .. } => 3,
+    };
+
+    // Add extra height for empty line separator and controls hint if it's the top notification.
+    if is_top {
+        base_height + 2
+    } else {
+        base_height
+    }
 }
 
 pub struct NotificationsView {
     notifications: Vec<NotificationMessage>,
     display_duration: Duration,
-    max_notifications: usize
+    max_notifications: usize,
 }
 impl NotificationsView {
-
     const TEXTWRAP_MAX_WIDTH: usize = 50;
     const INCOMING_MESSAGE_MAX_LINES: usize = 3;
 
@@ -86,14 +160,14 @@ impl NotificationsView {
         Self {
             notifications: Vec::new(),
             display_duration: Duration::from_secs(15),
-            max_notifications: 6
+            max_notifications: 6,
         }
     }
 
     pub fn add_notification(&mut self, notification_type: NotificationType) {
         let notification = NotificationMessage {
             notification_type,
-            timestamp: Instant::now()
+            timestamp: Instant::now(),
         };
 
         // Push and truncate end to maintain max size.
@@ -115,87 +189,28 @@ impl NotificationsView {
         }
     }
 
-    fn get_notification_style(&self, notification: &NotificationMessage, theme: &Theme) -> NotificationStyle {
-        match &notification.notification_type {
-            NotificationType::IncomingMessage { .. } => NotificationStyle {
-                icon: "📨".to_string(),
-                title: "New Message".to_string(),
-                border_color: theme.text_accent,
-                title_color: theme.text_accent
-            },
-            NotificationType::OnlineStatus { current: current_state, .. } => {
-                let (icon, color) = match current_state {
-                    ModemStatusUpdateState::Online => ("🟢", Color::Green),
-                    ModemStatusUpdateState::Offline => ("🔴", Color::Red),
-                    ModemStatusUpdateState::Startup | ModemStatusUpdateState::ShuttingDown => ("🟡", Color::Yellow)
-                };
-                NotificationStyle {
-                    icon: icon.to_string(),
-                    title: "Status Change".to_string(),
-                    border_color: color,
-                    title_color: color
-                }
-            },
-            NotificationType::WebSocketConnectionUpdate { connected, reconnect } => {
-                let (icon, title, color) = match (connected, reconnect) {
-                    (true, _) => ("🔗", "WebSocket Connected", Color::Green),
-                    (false, true) => ("🔄", "WebSocket Reconnecting", Color::Yellow),
-                    (false, false) => ("⚠️", "WebSocket Disconnected", Color::Red),
-                };
-                NotificationStyle {
-                    icon: icon.to_string(),
-                    title: title.into(),
-                    border_color: color,
-                    title_color: color
-                }
-            },
-            NotificationType::GenericMessage { icon, color, title, .. } => NotificationStyle {
-                title: title.into(),
-                icon: icon.clone(),
-                border_color: color.clone(),
-                title_color: color.clone()
-            }
-        }
-    }
-
-    fn calculate_notification_height(&self, notification: &NotificationMessage, is_top: bool) -> u16 {
-        let base_height = match &notification.notification_type {
-            NotificationType::IncomingMessage { content, .. } => {
-                let content_lines = (content.len() / 45).max(1).min(3);
-                5 + content_lines as u16
-            },
-            NotificationType::OnlineStatus { .. } => 3,
-            NotificationType::WebSocketConnectionUpdate { .. } => 3,
-            NotificationType::GenericMessage { .. } => 3
-        };
-
-        // Add extra height for empty line separator and controls hint if it's the top notification.
-        if is_top {
-            base_height + 2
-        } else {
-            base_height
-        }
-    }
-
     fn render_notification(
-        &self,
         frame: &mut Frame,
         notification: &NotificationMessage,
         area: Rect,
-        ctx: &RenderContext
+        ctx: &RenderContext,
     ) {
         frame.render_widget(Clear, area);
 
-        let style = self.get_notification_style(notification, ctx.theme);
+        let style = get_notification_style(notification, ctx.theme);
         let title = format!(" {} {} ", style.icon, style.title);
         let block = Block::bordered()
             .title(title)
             .title_style(Style::default().fg(style.title_color))
             .title_alignment(Alignment::Left)
             .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(style.border_color).add_modifier(ctx.opacity_modifier));
+            .border_style(
+                Style::default()
+                    .fg(style.border_color)
+                    .add_modifier(ctx.opacity_modifier),
+            );
 
-        let lines = self.build_notification_content(notification, ctx);
+        let lines = Self::build_notification_content(notification, ctx);
         let paragraph = Paragraph::new(lines)
             .block(block)
             .wrap(Wrap { trim: true })
@@ -205,14 +220,19 @@ impl NotificationsView {
     }
 
     fn build_notification_content(
-        &self,
         notification: &NotificationMessage,
-        ctx: &RenderContext
+        ctx: &RenderContext,
     ) -> Vec<Line<'static>> {
         let mut lines = Vec::new();
-        let base_style = Style::default().fg(ctx.theme.text_primary).add_modifier(ctx.opacity_modifier);
-        let accent_style = Style::default().fg(ctx.theme.text_accent).add_modifier(ctx.opacity_modifier);
-        let muted_style = Style::default().fg(ctx.theme.text_muted).add_modifier(ctx.opacity_modifier);
+        let base_style = Style::default()
+            .fg(ctx.theme.text_primary)
+            .add_modifier(ctx.opacity_modifier);
+        let accent_style = Style::default()
+            .fg(ctx.theme.text_accent)
+            .add_modifier(ctx.opacity_modifier);
+        let muted_style = Style::default()
+            .fg(ctx.theme.text_muted)
+            .add_modifier(ctx.opacity_modifier);
 
         match &notification.notification_type {
             NotificationType::IncomingMessage { phone, content } => {
@@ -226,7 +246,10 @@ impl NotificationsView {
                 let mut content_lines_added = 0;
 
                 for wrapped_line in wrapped_lines.iter().take(Self::INCOMING_MESSAGE_MAX_LINES) {
-                    lines.push(Line::from(Span::styled(wrapped_line.to_string(), base_style)));
+                    lines.push(Line::from(Span::styled(
+                        wrapped_line.to_string(),
+                        base_style,
+                    )));
                     content_lines_added += 1;
                 }
 
@@ -240,22 +263,31 @@ impl NotificationsView {
                     lines.push(Line::raw(""));
                     content_lines_added += 1;
                 }
-            },
-            NotificationType::OnlineStatus { previous: previous_state, current: current_state } => {
+            }
+            NotificationType::OnlineStatus {
+                previous: previous_state,
+                current: current_state,
+            } => {
                 lines.push(Line::from(vec![
                     Span::styled(previous_state.to_string(), muted_style),
                     Span::styled(" → ", muted_style),
                     Span::styled(current_state.to_string(), accent_style),
                 ]));
-            },
-            NotificationType::WebSocketConnectionUpdate { connected, reconnect } => {
+            }
+            NotificationType::WebSocketConnectionUpdate {
+                connected,
+                reconnect,
+            } => {
                 let status_text = match (connected, reconnect) {
                     (true, _) => "WebSocket connection established",
                     (false, true) => "WebSocket disconnected, attempting to reconnect...",
                     (false, false) => "WebSocket connection lost",
                 };
-                lines.push(Line::from(Span::styled(status_text.to_string(), base_style)));
-            },
+                lines.push(Line::from(Span::styled(
+                    status_text.to_string(),
+                    base_style,
+                )));
+            }
             NotificationType::GenericMessage { message, .. } => {
                 lines.push(Line::from(Span::styled(message.clone(), base_style)));
             }
@@ -274,7 +306,9 @@ impl NotificationsView {
 
             lines.push(Line::from(Span::styled(
                 controls_text,
-                Style::default().fg(ctx.theme.text_muted).add_modifier(Modifier::ITALIC)
+                Style::default()
+                    .fg(ctx.theme.text_muted)
+                    .add_modifier(Modifier::ITALIC),
             )));
         }
 
@@ -284,39 +318,40 @@ impl NotificationsView {
 impl ViewBase for NotificationsView {
     type Context<'ctx> = ();
 
-    async fn load<'ctx>(&mut self, _ctx: Self::Context<'ctx>) -> AppResult<()> {
+    async fn load(&mut self, _ctx: Self::Context<'_>) -> AppResult<()> {
         Ok(())
     }
 
-    async fn handle_key<'ctx>(&mut self, key: KeyEvent, _ctx: Self::Context<'ctx>) -> Option<AppAction> {
+    async fn handle_key(&mut self, key: KeyEvent, _ctx: Self::Context<'_>) -> Option<AppAction> {
         match key.code {
             KeyCode::F(1) => {
                 self.dismiss_oldest();
-            },
+            }
             KeyCode::F(2) => {
-
                 // Navigate to the most recent notification's conversation if it can be viewed
-                if let Some(phone_number) = self.notifications.first()
+                if let Some(phone_number) = self
+                    .notifications
+                    .first()
                     .filter(|n| n.can_view())
-                    .and_then(|n| n.get_phone_number())
+                    .and_then(NotificationMessage::get_phone_number)
                 {
                     self.dismiss_all();
                     return Some(AppAction::SetViewState {
-                        state: ViewStateRequest::view_messages(&*phone_number),
-                        dismiss_modal: false
+                        state: ViewStateRequest::view_messages(&phone_number),
+                        dismiss_modal: false,
                     });
                 }
-            },
-            _ => { }
+            }
+            _ => {}
         }
 
         None
     }
 
-    fn render<'ctx>(&mut self, frame: &mut Frame, theme: &Theme, _ctx: Self::Context<'ctx>) {
-
+    fn render(&mut self, frame: &mut Frame, theme: &Theme, _ctx: Self::Context<'_>) {
         // TODO: Should be calling this way less. No need to enforce expiry every frame.
-        self.notifications.retain(|notification| !notification.is_expired(self.display_duration));
+        self.notifications
+            .retain(|notification| !notification.is_expired(self.display_duration));
         if self.notifications.is_empty() {
             return;
         }
@@ -325,11 +360,15 @@ impl ViewBase for NotificationsView {
         let mut y_offset = 1;
         let mut is_top = true;
 
-        for notification in self.notifications.iter() {
+        for notification in &self.notifications {
             let ctx = RenderContext {
                 theme,
-                opacity_modifier: if is_top { Modifier::empty() } else { Modifier::DIM },
-                is_top
+                opacity_modifier: if is_top {
+                    Modifier::empty()
+                } else {
+                    Modifier::DIM
+                },
+                is_top,
             };
 
             // Position notifications from top-right
@@ -337,13 +376,13 @@ impl ViewBase for NotificationsView {
             let x = area.width.saturating_sub(width).saturating_sub(1);
             let y = y_offset;
 
-            let height = self.calculate_notification_height(notification, is_top);
+            let height = calculate_notification_height(notification, is_top);
             if y + height > area.height.saturating_sub(1) {
                 break;
             }
 
             let popup_area = Rect::new(x, y, width, height);
-            self.render_notification(frame, notification, popup_area, &ctx);
+            Self::render_notification(frame, notification, popup_area, &ctx);
 
             y_offset += height + 1;
             is_top = false;

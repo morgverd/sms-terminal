@@ -1,8 +1,8 @@
 use crossterm::event::KeyEvent;
-use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Layout};
 use ratatui::prelude::{Modifier, Style};
 use ratatui::widgets::Paragraph;
+use ratatui::Frame;
 
 use crate::modals::ModalResponse;
 use crate::theme::Theme;
@@ -11,20 +11,20 @@ use crate::ui::modals::{ModalComponent, ModalUtils};
 #[derive(Debug, Clone, PartialEq)]
 pub struct LoadingModal {
     pub message: String,
-    pub frame_count: u64
+    pub frame_count: usize,
 }
 impl LoadingModal {
     pub fn new(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
-            frame_count: 0
+            frame_count: 0,
         }
     }
 
     fn get_spinner_char(&self) -> char {
         let spinner_chars = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-        let index = self.frame_count % spinner_chars.len() as u64;
-        spinner_chars[index as usize]
+        let index = self.frame_count % spinner_chars.len();
+        spinner_chars[index]
     }
 }
 impl ModalComponent for LoadingModal {
@@ -41,20 +41,26 @@ impl ModalComponent for LoadingModal {
                 let layout = Layout::vertical([
                     Constraint::Length(1), // Top spacer
                     Constraint::Length(1), // Spinner + message line
-                    Constraint::Length(1)  // Bottom spacer
+                    Constraint::Length(1), // Bottom spacer
                 ])
-                    .split(area);
+                .split(area);
 
-                let spinner = Paragraph::new(format!("{} {}", self.get_spinner_char(), self.message.trim()))
-                    .style(Style::default()
+                let spinner = Paragraph::new(format!(
+                    "{} {}",
+                    self.get_spinner_char(),
+                    self.message.trim()
+                ))
+                .style(
+                    Style::default()
                         .fg(theme.text_accent)
-                        .add_modifier(Modifier::BOLD))
-                    .alignment(Alignment::Center);
+                        .add_modifier(Modifier::BOLD),
+                )
+                .alignment(Alignment::Center);
                 frame.render_widget(spinner, layout[1]);
             },
             theme,
             50,
-            10
+            10,
         );
     }
 }

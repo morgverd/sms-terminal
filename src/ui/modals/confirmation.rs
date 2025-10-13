@@ -1,11 +1,13 @@
 use crossterm::event::{KeyCode, KeyEvent};
-use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Layout};
 use ratatui::widgets::{Paragraph, Wrap};
+use ratatui::Frame;
 
-use crate::theme::Theme;
 use crate::modals::ModalResponse;
-use crate::ui::modals::{ModalButtonComponentStyles, ModalComponent, ModalButtonComponent, ModalUtils};
+use crate::theme::Theme;
+use crate::ui::modals::{
+    ModalButtonComponent, ModalButtonComponentStyles, ModalComponent, ModalUtils,
+};
 
 /// Confirmation with Yes/No buttons
 #[derive(Debug, Clone, PartialEq)]
@@ -17,21 +19,24 @@ impl ConfirmationModal {
     pub fn new(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
-            selected_yes: false
+            selected_yes: false,
         }
     }
 }
 impl ModalComponent for ConfirmationModal {
-
     fn handle_key(&mut self, key: KeyEvent) -> Option<ModalResponse> {
         match key.code {
             KeyCode::Left | KeyCode::Right | KeyCode::Tab => {
                 self.selected_yes = !self.selected_yes;
                 None
-            },
-            KeyCode::Enter => Some(if self.selected_yes { ModalResponse::Confirmed } else { ModalResponse::Dismissed }),
+            }
+            KeyCode::Enter => Some(if self.selected_yes {
+                ModalResponse::Confirmed
+            } else {
+                ModalResponse::Dismissed
+            }),
             KeyCode::Esc => Some(ModalResponse::Dismissed),
-            _ => None
+            _ => None,
         }
     }
 
@@ -44,12 +49,12 @@ impl ModalComponent for ConfirmationModal {
             "Confirm",
             |frame, area, theme| {
                 let layout = Layout::vertical([
-                    Constraint::Length(2),   // Message
-                    Constraint::Min(1),      // Spacer
-                    Constraint::Length(2),   // Buttons
-                    Constraint::Length(1),   // Help text
+                    Constraint::Length(2), // Message
+                    Constraint::Min(1),    // Spacer
+                    Constraint::Length(2), // Buttons
+                    Constraint::Length(1), // Help text
                 ])
-                    .split(area);
+                .split(area);
 
                 // Message
                 let message = Paragraph::new(self.message.as_str())
@@ -59,7 +64,7 @@ impl ModalComponent for ConfirmationModal {
                 frame.render_widget(message, layout[0]);
 
                 // Buttons
-                let selected_index = if self.selected_yes { 0 } else { 1 };
+                let selected_index = usize::from(!self.selected_yes);
                 ModalUtils::render_buttons(frame, layout[2], &styled_buttons, selected_index);
 
                 // Help text
@@ -70,7 +75,7 @@ impl ModalComponent for ConfirmationModal {
             },
             theme,
             40,
-            15
+            15,
         );
     }
 }
