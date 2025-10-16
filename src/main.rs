@@ -107,13 +107,13 @@ struct AppArguments {
     #[serde(default)]
     pub auth: Option<String>,
 
-    #[cfg(feature = "sentry")]
-    #[arg(long, help = "Sentry DSN to use for error reporting")]
-    pub sentry: Option<String>,
-
     #[serde(default, deserialize_with = "deserialize_certificate_filepath")]
     #[arg(long, value_hint = clap::ValueHint::FilePath, help = "An SSL certificate filepath to use for SMS connections")]
     pub ssl_certificate: Option<PathBuf>,
+
+    #[cfg(feature = "sentry")]
+    #[arg(long, help = "Sentry DSN to use for error reporting")]
+    pub sentry: Option<String>
 }
 impl AppArguments {
     pub fn load_with_file_config(self) -> AppResult<Self> {
