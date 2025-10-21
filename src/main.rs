@@ -96,7 +96,7 @@ struct AppArguments {
     #[serde(default)]
     pub ws_uri: Option<String>,
 
-    #[arg(long, action = clap::ArgAction::SetTrue, help = "Enable WebSocket support")]
+    #[arg(long, help = "Enable WebSocket support")]
     #[serde(default)]
     pub ws_enabled: Option<bool>,
 
@@ -113,7 +113,7 @@ struct AppArguments {
 
     #[cfg(feature = "sentry")]
     #[arg(long, help = "Sentry DSN to use for error reporting")]
-    pub sentry: Option<String>
+    pub sentry: Option<String>,
 }
 impl AppArguments {
     pub fn load_with_file_config(self) -> AppResult<Self> {
@@ -180,10 +180,10 @@ impl AppArguments {
             return local;
         }
 
-        // On Windows, use AppData directory
+        // On Windows, use Local AppData directory
         #[cfg(windows)]
         {
-            if let Ok(appdata) = std::env::var("APPDATA") {
+            if let Ok(appdata) = std::env::var("LOCALAPPDATA") {
                 return PathBuf::from(appdata)
                     .join("sms-terminal")
                     .join("config.toml");

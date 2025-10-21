@@ -67,8 +67,10 @@ Customize your experience with built-in themes and background fill options.
 Configuration can be provided through command line arguments or a config file.
 
 ### Config File Locations
-- **Windows**: `%appdata%/Local/sms-terminal/config.toml`
-- **Linux**: `$HOME/.config/sms-terminal/config.toml`
+- `./sms-terminal-config.toml` (local, highest priority)
+- Windows: `%appdata%/Local/sms-terminal/config.toml`
+- Linux: `$HOME/.config/sms-terminal/config.toml`
+
 
 ### Available Options
 
@@ -85,6 +87,9 @@ Configuration can be provided through command line arguments or a config file.
 
 > [!TIP]
 > WebSocket connection is optional but strongly recommended for live updates!
+
+> [!WARNING]
+> In a config file, the options use underscores instead of hyphens. Eg: `ws_enabled` instead of `ws-enabled`!
 
 ## Installation
 
@@ -103,19 +108,9 @@ cargo install sms-terminal -F sentry
 # View help and available commands
 sms-terminal -h
 
+# Start terminal with default view
+sms-terminal --host 192.168.1.20:3000 --auth testing
+
 # Start with messages view for a specific contact
 sms-terminal messages "+44123" --host 192.168.1.20:3000
-
-# Start in compose mode
-sms-terminal compose --host 192.168.1.20:3000
-
-# Start with phonebook view
-sms-terminal phonebook --host 192.168.1.20:3000
 ```
-
-## Commands
-
-- `messages` - Start with Messages view for a specific contact.
-- `compose` - Start with Compose SMS view.
-- `phonebook` - Start with Phonebook view.
-- `help` - Display help information.
