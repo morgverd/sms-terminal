@@ -343,12 +343,12 @@ impl MessagesView {
         }
 
         let info_footer = Paragraph::new(Text::from(footer_lines.join("\n")))
-            .style(theme.primary_style())
+            .style(theme.primary_style)
             .centered()
             .block(
                 Block::bordered()
                     .border_type(BorderType::Double)
-                    .border_style(theme.border_focused_style()),
+                    .border_style(theme.border_focused_style),
             );
         frame.render_widget(info_footer, area);
     }

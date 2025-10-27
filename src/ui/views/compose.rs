@@ -224,7 +224,7 @@ impl ViewBase for ComposeView {
             .title(format!(" Compose SMS to {ctx} "))
             .title_alignment(Alignment::Center)
             .border_type(BorderType::Rounded)
-            .border_style(theme.border_focused_style());
+            .border_style(theme.border_focused_style);
 
         let inner = block.inner(area);
         frame.render_widget(block, area);
@@ -240,10 +240,10 @@ impl ViewBase for ComposeView {
         let text_with_cursor = self.render_text_with_cursor(theme);
 
         let text_area = Paragraph::new(text_with_cursor)
-            .style(theme.input_style())
+            .style(theme.input_style)
             .block(
                 Block::bordered()
-                    .border_style(theme.border_focused_style())
+                    .border_style(theme.border_focused_style)
                     .border_type(BorderType::Rounded),
             )
             .wrap(Wrap { trim: false })
@@ -255,7 +255,7 @@ impl ViewBase for ComposeView {
         let char_count = self.sms_text_buffer.chars().count();
         let (counter_style, counter_text) = if char_count <= 160 {
             (
-                theme.accent_style().bg(theme.bg),
+                theme.accent_style.bg(theme.bg),
                 format!("{char_count}/160 (1 SMS)"),
             )
         } else if char_count <= 320 {
@@ -265,7 +265,7 @@ impl ViewBase for ComposeView {
             )
         } else {
             (
-                theme.error_style().bg(theme.bg),
+                theme.error_style.bg(theme.bg),
                 format!(
                     "{} ({} SMS parts)",
                     char_count,
@@ -281,7 +281,7 @@ impl ViewBase for ComposeView {
 
         // Help text
         let help = Paragraph::new("(Enter) new line | (Ctrl+Space) send | (Esc) cancel")
-            .style(theme.secondary_style())
+            .style(theme.secondary_style)
             .alignment(Alignment::Center);
         frame.render_widget(help, layout[2]);
     }

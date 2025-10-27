@@ -111,16 +111,16 @@ impl App {
 
                 // Views (bottom)
                 if self.render_views {
-                    self.view_manager.render(frame, theme);
+                    self.view_manager.render(frame, &theme);
                 }
 
                 // Modals
                 if let Some(modal) = &mut self.current_modal {
-                    modal.render(frame, theme);
+                    modal.render(frame, &theme);
                 }
 
                 // Notifications (top)
-                self.notifications.render(frame, theme, ());
+                self.notifications.render(frame, &theme, ());
             })?;
 
             // Poll for key input
@@ -214,7 +214,7 @@ impl App {
             return None;
         }
 
-        // TODO: FIND BETTER KEYS.
+        // Theme controls
         if key.code == KeyCode::F(10) {
             self.theme_manager.next();
             return None;

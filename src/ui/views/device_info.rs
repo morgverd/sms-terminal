@@ -124,7 +124,7 @@ impl DeviceInfoView {
                     "{}{}% • {:.2}V",
                     status_indicator, battery_level, battery.voltage
                 ),
-                theme.accent_style(),
+                theme.accent_style,
             )]),
             Line::from(vec![Span::styled(
                 Self::get_battery_status_text(battery),
@@ -197,7 +197,7 @@ impl DeviceInfoView {
         } else {
             lines.push(Line::from(vec![Span::styled(
                 format!("{quality_text} ({signal_percentage}%)"),
-                theme.accent_style(),
+                theme.accent_style,
             )]));
         }
 
@@ -257,7 +257,7 @@ impl ViewBase for DeviceInfoView {
             .title(" 📱 Device Information ")
             .title_alignment(Alignment::Center)
             .border_type(BorderType::Rounded)
-            .border_style(theme.border_focused_style());
+            .border_style(theme.border_focused_style);
 
         let inner = block.inner(area);
         frame.render_widget(block, area);
@@ -284,11 +284,11 @@ impl ViewBase for DeviceInfoView {
             let phone_content = Paragraph::new(vec![
                 Line::from(vec![Span::styled(
                     "📞 Phone Number",
-                    theme.secondary_style().add_modifier(Modifier::BOLD),
+                    theme.secondary_style.add_modifier(Modifier::BOLD),
                 )]),
                 Line::from(vec![Span::styled(
                     format!("╰─── {phone_number} ───╯"),
-                    theme.accent_style().add_modifier(Modifier::BOLD),
+                    theme.accent_style.add_modifier(Modifier::BOLD),
                 )]),
             ])
             .alignment(Alignment::Center);
@@ -325,7 +325,7 @@ impl ViewBase for DeviceInfoView {
             .split(battery_center[1]);
 
             let battery_title = Paragraph::new("🔋 Battery")
-                .style(theme.secondary_style().add_modifier(Modifier::BOLD))
+                .style(theme.secondary_style.add_modifier(Modifier::BOLD))
                 .alignment(Alignment::Center);
             frame.render_widget(battery_title, battery_content[0]);
 
@@ -351,7 +351,7 @@ impl ViewBase for DeviceInfoView {
             .split(signal_center[1]);
 
             let signal_title = Paragraph::new("📶 Signal")
-                .style(theme.secondary_style().add_modifier(Modifier::BOLD))
+                .style(theme.secondary_style.add_modifier(Modifier::BOLD))
                 .alignment(Alignment::Center);
             frame.render_widget(signal_title, signal_content[0]);
 
@@ -370,7 +370,7 @@ impl ViewBase for DeviceInfoView {
 
         let mut network_lines = vec![Line::from(vec![
             Span::styled("Network: ", Style::default().fg(theme.text_muted)),
-            Span::styled(&operator_name, theme.accent_style()),
+            Span::styled(&operator_name, theme.accent_style),
         ])];
 
         // Add technical details
@@ -385,7 +385,7 @@ impl ViewBase for DeviceInfoView {
 
             network_lines.push(Line::from(vec![
                 Span::styled("BER: ", Style::default().fg(theme.text_muted)),
-                Span::styled(ber_text, theme.accent_style()),
+                Span::styled(ber_text, theme.accent_style),
                 Span::raw("  •  "),
                 Span::styled("Raw RSSI: ", Style::default().fg(theme.text_muted)),
                 Span::styled(
@@ -394,7 +394,7 @@ impl ViewBase for DeviceInfoView {
                     } else {
                         format!("{}/31", signal.rssi)
                     },
-                    theme.accent_style(),
+                    theme.accent_style,
                 ),
             ]));
         }
@@ -402,7 +402,7 @@ impl ViewBase for DeviceInfoView {
         // Add version as the third line
         network_lines.push(Line::from(vec![
             Span::styled("Version: ", Style::default().fg(theme.text_muted)),
-            Span::styled(&device_info.version, theme.accent_style()),
+            Span::styled(&device_info.version, theme.accent_style),
         ]));
 
         let network_info = Paragraph::new(network_lines).alignment(Alignment::Center);

@@ -67,7 +67,7 @@ impl ReportEntry {
                 .fg(theme.text_accent)
                 .add_modifier(Modifier::BOLD),
             SmsDeliveryReportStatusGroup::PermanentFailure => {
-                theme.error_style().add_modifier(Modifier::BOLD)
+                theme.error_style.add_modifier(Modifier::BOLD)
             }
             SmsDeliveryReportStatusGroup::TemporaryFailure => Style::default().fg(theme.text_muted),
         }
@@ -83,7 +83,7 @@ impl ReportEntry {
 
         Line::from(vec![
             Span::styled(format!("{} ", self.icon()), style),
-            Span::styled(format!("{time_str} "), theme.secondary_style()),
+            Span::styled(format!("{time_str} "), theme.secondary_style),
             Span::styled(self.display_text().to_string(), style),
         ])
     }
@@ -183,7 +183,7 @@ impl ModalComponent for DeliveryReportsModal {
                 frame.render_widget(timeline_paragraph, sections[1]);
 
                 let help = Paragraph::new("(Esc) close")
-                    .style(theme.primary_style())
+                    .style(theme.primary_style)
                     .alignment(Alignment::Center);
                 frame.render_widget(help, sections[2]);
             },

@@ -147,7 +147,7 @@ impl ViewBase for MainMenuView {
             .title(title)
             .title_alignment(Alignment::Center)
             .border_type(BorderType::Rounded)
-            .border_style(theme.border_style());
+            .border_style(theme.border_style);
 
         let inner = block.inner(area);
         frame.render_widget(block, area);
@@ -223,7 +223,7 @@ impl ViewBase for MainMenuView {
                     .fg(Color::Black)
                     .add_modifier(Modifier::BOLD)
             } else {
-                theme.primary_style().add_modifier(Modifier::BOLD)
+                theme.primary_style.add_modifier(Modifier::BOLD)
             };
 
             let label_text = format!("  ({})  {}", item.key_hint, item.label);

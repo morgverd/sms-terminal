@@ -195,7 +195,7 @@ impl ModalComponent for TextInputModal {
                 let mut layout_index = 0;
 
                 // Prompt (fixed)
-                let prompt = Paragraph::new(self.prompt.as_str()).style(theme.secondary_style());
+                let prompt = Paragraph::new(self.prompt.as_str()).style(theme.secondary_style);
                 frame.render_widget(prompt, layout[layout_index]);
                 layout_index += 1;
 
@@ -217,12 +217,12 @@ impl ModalComponent for TextInputModal {
                 let input_style = if self.input_buffer.is_empty() {
                     Style::default().fg(theme.text_muted)
                 } else {
-                    theme.input_style()
+                    theme.input_style
                 };
 
                 let input = Paragraph::new(input_text)
                     .style(input_style)
-                    .block(Block::bordered().border_style(theme.border_focused_style()));
+                    .block(Block::bordered().border_style(theme.border_focused_style));
                 frame.render_widget(input, layout[layout_index]);
                 layout_index += 1;
 
@@ -231,9 +231,9 @@ impl ModalComponent for TextInputModal {
                     let count_text =
                         format!("{}/{}", self.input_buffer.len(), self.max_length.unwrap());
                     let count_style = if self.input_buffer.len() >= self.max_length.unwrap() {
-                        theme.error_style()
+                        theme.error_style
                     } else {
-                        theme.secondary_style()
+                        theme.secondary_style
                     };
                     let count = Paragraph::new(count_text)
                         .style(count_style)
@@ -259,7 +259,7 @@ impl ModalComponent for TextInputModal {
                 if show_help {
                     let help =
                         Paragraph::new("(Tab/Alt+←→) switch | (Enter) confirm | (Esc) cancel")
-                            .style(theme.secondary_style())
+                            .style(theme.secondary_style)
                             .alignment(Alignment::Center);
                     frame.render_widget(help, layout[layout_index]);
                 }

@@ -58,7 +58,7 @@ impl ModalComponent for ConfirmationModal {
 
                 // Message
                 let message = Paragraph::new(self.message.as_str())
-                    .style(theme.primary_style())
+                    .style(theme.primary_style)
                     .alignment(Alignment::Center)
                     .wrap(Wrap { trim: false });
                 frame.render_widget(message, layout[0]);
@@ -69,7 +69,7 @@ impl ModalComponent for ConfirmationModal {
 
                 // Help text
                 let help = Paragraph::new("(←/→) select | (Enter) confirm | (Esc) cancel")
-                    .style(theme.secondary_style())
+                    .style(theme.secondary_style)
                     .alignment(Alignment::Center);
                 frame.render_widget(help, layout[3]);
             },

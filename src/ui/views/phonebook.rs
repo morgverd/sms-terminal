@@ -175,7 +175,7 @@ impl ViewBase for PhonebookView {
             .title(" Enter Phone Number ")
             .title_alignment(Alignment::Center)
             .border_type(BorderType::Rounded)
-            .border_style(theme.border_style());
+            .border_style(theme.border_style);
 
         let inner = block.inner(area);
         frame.render_widget(block, area);
@@ -198,7 +198,7 @@ impl ViewBase for PhonebookView {
 
         // Prompt
         let prompt =
-            Paragraph::new("Phone number (international format):").style(theme.secondary_style());
+            Paragraph::new("Phone number (international format):").style(theme.secondary_style);
         frame.render_widget(prompt, layout[0]);
 
         // Input box
@@ -212,7 +212,7 @@ impl ViewBase for PhonebookView {
         let input_style = if self.input_buffer.is_empty() {
             Style::default().fg(theme.text_muted)
         } else {
-            theme.input_style()
+            theme.input_style
         };
 
         let input =
@@ -220,9 +220,9 @@ impl ViewBase for PhonebookView {
                 .style(input_style)
                 .block(
                     Block::bordered().border_style(if self.input_buffer.is_empty() {
-                        theme.border_style()
+                        theme.border_style
                     } else {
-                        theme.border_focused_style()
+                        theme.border_focused_style
                     }),
                 );
         frame.render_widget(input, layout[1]);
@@ -243,7 +243,7 @@ impl ViewBase for PhonebookView {
 
         // Recent contacts section, if there are some
         if !self.recent_contacts.is_empty() {
-            let header = Paragraph::new("Recent Contacts:").style(theme.secondary_style());
+            let header = Paragraph::new("Recent Contacts:").style(theme.secondary_style);
             frame.render_widget(header, layout[4]);
 
             let max_phone_length = self.get_max_phone_length();

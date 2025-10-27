@@ -1,22 +1,35 @@
 use ratatui::style::palette::tailwind;
 use ratatui::style::{Color, Style};
 use serde::{Deserialize, Serialize};
+use std::rc::Rc;
 
-#[derive(clap::ValueEnum, Serialize, Deserialize, Debug, Clone, Copy)]
+#[derive(clap::ValueEnum, Serialize, Deserialize, Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
-#[derive(Default)]
+#[repr(u8)]
 pub enum PresetTheme {
     #[default]
-    Emerald,
-    Blue,
-    Zinc,
-    Indigo,
-    Red,
-    Amber,
-    Pink,
+    Emerald = 0,
+    Blue = 1,
+    Zinc = 2,
+    Indigo = 3,
+    Red = 4,
+    Amber = 5,
+    Pink = 6,
 }
 impl PresetTheme {
-    pub fn palette(self) -> tailwind::Palette {
+    pub const COUNT: usize = 7;
+
+    pub const VARIANTS: &'static [PresetTheme] = &[
+        PresetTheme::Emerald,
+        PresetTheme::Blue,
+        PresetTheme::Zinc,
+        PresetTheme::Indigo,
+        PresetTheme::Red,
+        PresetTheme::Amber,
+        PresetTheme::Pink,
+    ];
+
+    pub const fn palette(self) -> tailwind::Palette {
         match self {
             PresetTheme::Emerald => tailwind::EMERALD,
             PresetTheme::Blue => tailwind::BLUE,
@@ -28,20 +41,12 @@ impl PresetTheme {
         }
     }
 
-    pub fn variants() -> &'static [PresetTheme] {
-        &[
-            PresetTheme::Emerald,
-            PresetTheme::Blue,
-            PresetTheme::Zinc,
-            PresetTheme::Indigo,
-            PresetTheme::Red,
-            PresetTheme::Amber,
-            PresetTheme::Pink,
-        ]
+    #[inline]
+    pub const fn as_index(self) -> usize {
+        self as usize
     }
 }
 
-#[derive(Clone)]
 pub struct Theme {
     // Base colors
     pub bg: Color,
@@ -50,11 +55,9 @@ pub struct Theme {
     pub header_bg: Color,
     pub header_fg: Color,
     pub border: Color,
-    pub border_focused: Color,
 
     // Text colors
     pub text_primary: Color,
-    pub text_secondary: Color,
     pub text_muted: Color,
     pub text_accent: Color,
     pub text_error: Color,
@@ -67,11 +70,19 @@ pub struct Theme {
     pub cell_selected_fg: Color,
 
     // Input specific
-    pub input_bg: Color,
-    pub input_fg: Color,
     pub input_cursor: Color,
+
+    // Styles
+    pub primary_style: Style,
+    pub secondary_style: Style,
+    pub accent_style: Style,
+    pub error_style: Style,
+    pub border_style: Style,
+    pub border_focused_style: Style,
+    pub input_style: Style,
 }
 impl Theme {
+    #[inline]
     pub fn new(palette: &tailwind::Palette) -> Self {
         Self::with_mode(palette, false)
     }
@@ -84,23 +95,32 @@ impl Theme {
         }
     }
 
+    #[inline(never)]
     fn themed_background(palette: &tailwind::Palette) -> Self {
+        let bg = palette.c950;
+        let text_primary = palette.c100;
+        let text_secondary = palette.c300;
+        let text_accent = palette.c400;
+        let text_error = tailwind::RED.c400;
+        let border = palette.c400;
+        let border_focused = palette.c500;
+        let input_bg = palette.c900;
+        let input_fg = palette.c200;
+
         Self {
             // Base
-            bg: palette.c950,
+            bg,
 
             // Component
             header_bg: palette.c900,
             header_fg: palette.c100,
-            border: palette.c400,
-            border_focused: palette.c500,
+            border,
 
             // Text
-            text_primary: palette.c100,
-            text_secondary: palette.c300,
+            text_primary,
             text_muted: palette.c400,
-            text_accent: palette.c400,
-            text_error: tailwind::RED.c400,
+            text_accent,
+            text_error,
 
             // Table
             row_normal_bg: palette.c950,
@@ -110,73 +130,72 @@ impl Theme {
             cell_selected_fg: palette.c500,
 
             // Input
-            input_bg: palette.c900,
-            input_fg: palette.c200,
             input_cursor: palette.c400,
+
+            // Styles
+            primary_style: Style::default().fg(text_primary).bg(bg),
+            secondary_style: Style::default().fg(text_secondary).bg(bg),
+            accent_style: Style::default().fg(text_accent),
+            error_style: Style::default().fg(text_error),
+            border_style: Style::default().fg(border),
+            border_focused_style: Style::default().fg(border_focused),
+            input_style: Style::default().fg(input_fg).bg(input_bg),
         }
     }
 
+    #[inline(never)]
     fn static_background(palette: &tailwind::Palette) -> Self {
+        const SLATE_950: Color = tailwind::SLATE.c950;
+        const SLATE_200: Color = tailwind::SLATE.c200;
+        const SLATE_400: Color = tailwind::SLATE.c400;
+        const SLATE_500: Color = tailwind::SLATE.c500;
+        const SLATE_900: Color = tailwind::SLATE.c900;
+        const RED_400: Color = tailwind::RED.c400;
+
+        let text_accent = palette.c400;
+        let border = palette.c400;
+        let border_focused = palette.c500;
+        let input_fg = palette.c300;
+
         Self {
             // Base
-            bg: tailwind::SLATE.c950,
+            bg: SLATE_950,
 
             // Component
             header_bg: palette.c900,
-            header_fg: tailwind::SLATE.c200,
-            border: palette.c400,
-            border_focused: palette.c500,
+            header_fg: SLATE_200,
+            border,
 
             // Text
-            text_primary: tailwind::SLATE.c200,
-            text_secondary: tailwind::SLATE.c400,
-            text_muted: tailwind::SLATE.c500,
-            text_accent: palette.c400,
-            text_error: tailwind::RED.c400,
+            text_primary: SLATE_200,
+            text_muted: SLATE_500,
+            text_accent,
+            text_error: RED_400,
 
             // Table
-            row_normal_bg: tailwind::SLATE.c950,
-            row_alt_bg: tailwind::SLATE.c900,
+            row_normal_bg: SLATE_950,
+            row_alt_bg: SLATE_900,
             row_selected_fg: palette.c400,
             column_selected_fg: palette.c400,
             cell_selected_fg: palette.c600,
 
             // Input
-            input_bg: tailwind::SLATE.c900,
-            input_fg: palette.c300,
             input_cursor: palette.c500,
+
+            // Styles
+            primary_style: Style::default().fg(SLATE_200).bg(SLATE_950),
+            secondary_style: Style::default().fg(SLATE_400).bg(SLATE_950),
+            accent_style: Style::default().fg(text_accent),
+            error_style: Style::default().fg(RED_400),
+            border_style: Style::default().fg(border),
+            border_focused_style: Style::default().fg(border_focused),
+            input_style: Style::default().fg(input_fg).bg(SLATE_900),
         }
     }
-
-    pub fn primary_style(&self) -> Style {
-        Style::default().fg(self.text_primary).bg(self.bg)
-    }
-
-    pub fn secondary_style(&self) -> Style {
-        Style::default().fg(self.text_secondary).bg(self.bg)
-    }
-
-    pub fn accent_style(&self) -> Style {
-        Style::default().fg(self.text_accent)
-    }
-
-    pub fn error_style(&self) -> Style {
-        Style::default().fg(self.text_error)
-    }
-
-    pub fn border_style(&self) -> Style {
-        Style::default().fg(self.border)
-    }
-
-    pub fn border_focused_style(&self) -> Style {
-        Style::default().fg(self.border_focused)
-    }
-
-    pub fn input_style(&self) -> Style {
-        Style::default().fg(self.input_fg).bg(self.input_bg)
-    }
 }
+
 impl From<&PresetTheme> for Theme {
+    #[inline]
     fn from(preset: &PresetTheme) -> Self {
         Self::new(&preset.palette())
     }
@@ -184,44 +203,63 @@ impl From<&PresetTheme> for Theme {
 
 pub struct ThemeManager {
     modify_background: bool,
-    static_themes: Vec<Option<Theme>>,
-    dynamic_themes: Vec<Option<Theme>>,
-    current_index: usize,
+    static_themes: [Option<Rc<Theme>>; PresetTheme::COUNT],
+    dynamic_themes: [Option<Rc<Theme>>; PresetTheme::COUNT],
+    current_preset: PresetTheme,
+    current_theme: Rc<Theme>,
 }
 impl ThemeManager {
     pub fn with_preset(preset: PresetTheme) -> Self {
-        let num_themes = PresetTheme::variants().len();
+        const NONE: Option<Rc<Theme>> = None;
+
+        let modify_background = true;
+        let current_theme = Rc::new(Theme::with_mode(&preset.palette(), modify_background));
+
+        let mut dynamic_themes = [NONE; PresetTheme::COUNT];
+        dynamic_themes[preset.as_index()] = Some(current_theme.clone());
 
         Self {
-            modify_background: true,
-            static_themes: vec![None; num_themes],
-            dynamic_themes: vec![None; num_themes],
-            current_index: PresetTheme::variants()
-                .iter()
-                .position(|&p| std::mem::discriminant(&p) == std::mem::discriminant(&preset))
-                .unwrap_or(0),
+            modify_background,
+            static_themes: [NONE; PresetTheme::COUNT],
+            dynamic_themes,
+            current_preset: preset,
+            current_theme,
         }
     }
 
-    /// Get the current theme, lazily loading it if it doesn't yet exist.
-    pub fn current(&mut self) -> &Theme {
+    #[inline]
+    pub fn current(&self) -> &Rc<Theme> {
+        &self.current_theme
+    }
+
+    #[inline]
+    pub fn next(&mut self) {
+        let next_index = (self.current_preset as u8 + 1) % PresetTheme::COUNT as u8;
+        self.current_preset = PresetTheme::VARIANTS[next_index as usize];
+        self.update_current_theme();
+    }
+
+    #[inline]
+    pub fn toggle_modify_background(&mut self) {
+        self.modify_background = !self.modify_background;
+        self.update_current_theme();
+    }
+
+    fn update_current_theme(&mut self) {
+        let index = self.current_preset.as_index();
         let theme_cache = if self.modify_background {
             &mut self.dynamic_themes
         } else {
             &mut self.static_themes
         };
 
-        theme_cache[self.current_index].get_or_insert_with(|| {
-            let preset = PresetTheme::variants()[self.current_index];
-            Theme::with_mode(&preset.palette(), self.modify_background)
-        })
-    }
-
-    pub fn next(&mut self) {
-        self.current_index = (self.current_index + 1) % self.static_themes.len();
-    }
-
-    pub fn toggle_modify_background(&mut self) {
-        self.modify_background = !self.modify_background;
+        self.current_theme = theme_cache[index]
+            .get_or_insert_with(|| {
+                Rc::new(Theme::with_mode(
+                    &self.current_preset.palette(),
+                    self.modify_background,
+                ))
+            })
+            .clone();
     }
 }
