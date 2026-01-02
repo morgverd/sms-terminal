@@ -113,7 +113,7 @@ impl MessagesView {
                 self.has_more = count == usize::try_from(MESSAGES_PER_PAGE).unwrap_or(count);
                 Ok(())
             }
-            Err(e) => Err(AppError::Http(e)),
+            Err(e) => Err(AppError::from(e)),
         }
     }
 

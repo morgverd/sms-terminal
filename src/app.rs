@@ -111,16 +111,16 @@ impl App {
 
                 // Views (bottom)
                 if self.render_views {
-                    self.view_manager.render(frame, &theme);
+                    self.view_manager.render(frame, theme);
                 }
 
                 // Modals
                 if let Some(modal) = &mut self.current_modal {
-                    modal.render(frame, &theme);
+                    modal.render(frame, theme);
                 }
 
                 // Notifications (top)
-                self.notifications.render(frame, &theme, ());
+                self.notifications.render(frame, theme, ());
             })?;
 
             // Poll for key input

@@ -1,7 +1,7 @@
 #[derive(Debug)]
 pub enum AppError {
-    Http(sms_client::http::error::HttpError),
-    Sms(sms_client::error::ClientError),
+    Http(Box<sms_client::http::error::HttpError>),
+    Sms(Box<sms_client::error::ClientError>),
     Config(String),
 }
 impl std::error::Error for AppError {}
@@ -14,9 +14,14 @@ impl std::fmt::Display for AppError {
         }
     }
 }
+impl From<sms_client::http::error::HttpError> for AppError {
+    fn from(e: sms_client::http::error::HttpError) -> Self {
+        AppError::Http(Box::new(e))
+    }
+}
 impl From<sms_client::error::ClientError> for AppError {
     fn from(e: sms_client::error::ClientError) -> Self {
-        AppError::Sms(e)
+        AppError::Sms(Box::new(e))
     }
 }
 
