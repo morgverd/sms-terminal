@@ -5,9 +5,8 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Clear, Paragraph};
 use ratatui::Frame;
-
 use sms_client::error::ClientError;
-use sms_client::http::types::{
+use sms_types::http::{
     HttpModemBatteryLevelResponse, HttpModemSignalStrengthResponse, HttpSmsDeviceInfoData,
 };
 

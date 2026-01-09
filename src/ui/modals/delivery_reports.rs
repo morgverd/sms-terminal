@@ -1,3 +1,4 @@
+use std::time::SystemTime;
 use chrono::{DateTime, Local, TimeZone};
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::{Alignment, Constraint, Layout};
@@ -5,86 +6,76 @@ use ratatui::prelude::{Line, Modifier, Span, Style};
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 use sms_client::error::ClientError;
-use sms_client::http::types::{HttpPaginationOptions, HttpSmsDeliveryReport};
-use sms_client::types::{SmsDeliveryReportStatus, SmsDeliveryReportStatusGroup};
+use sms_types::http::HttpPaginationOptions;
+use sms_types::sms::{SmsDeliveryReport, SmsDeliveryReportStatusCategory, SmsMessage};
 
 use crate::error::AppError;
 use crate::modals::{AppModal, ModalResponse};
 use crate::theme::Theme;
-use crate::types::{AppAction, SmsMessage};
+use crate::types::AppAction;
 use crate::ui::modals::loading::LoadingModal;
 use crate::ui::modals::{ModalComponent, ModalLoadBehaviour, ModalUtils};
 use crate::ui::views::ViewStateRequest;
 
-/// This is to make sure we can always add a 'Sent' report
-/// as the first delivery report for each message.
+/// A delivery report entry with pre-computed fields for efficient rendering.
 #[derive(Debug, Clone, PartialEq)]
-enum ReportEntry {
-    Sent { timestamp: Option<DateTime<Local>> },
-    Api(HttpSmsDeliveryReport),
+struct ReportEntry {
+    timestamp: Option<DateTime<Local>>,
+    status_category: SmsDeliveryReportStatusCategory,
 }
 impl ReportEntry {
-    fn timestamp(&self) -> Option<DateTime<Local>> {
-        match self {
-            ReportEntry::Sent { timestamp } => *timestamp,
-            ReportEntry::Api(report) => report
+    /// Create a synthetic "Sent" entry.
+    fn sent(timestamp: SystemTime) -> Self {
+        Self {
+            timestamp: Some(timestamp.into()),
+            status_category: SmsDeliveryReportStatusCategory::Sent,
+        }
+    }
+
+    /// Create an entry from an API delivery report.
+    fn from_api(report: &SmsDeliveryReport) -> Self {
+        Self {
+            timestamp: report
                 .created_at
                 .and_then(|ts| Local.timestamp_opt(i64::from(ts), 0).single()),
-        }
-    }
-
-    fn status_group(&self) -> SmsDeliveryReportStatusGroup {
-        match self {
-            ReportEntry::Sent { .. } => SmsDeliveryReportStatusGroup::Sent,
-            ReportEntry::Api(report) => {
-                SmsDeliveryReportStatus::from(report.status).to_status_group()
-            }
-        }
-    }
-
-    fn display_text(&self) -> &'static str {
-        match self.status_group() {
-            SmsDeliveryReportStatusGroup::Sent => "Sent",
-            SmsDeliveryReportStatusGroup::Received => "Delivered",
-            SmsDeliveryReportStatusGroup::PermanentFailure => "Failed",
-            SmsDeliveryReportStatusGroup::TemporaryFailure => "Retry",
+            status_category: SmsDeliveryReportStatusCategory::from(report.status),
         }
     }
 
     fn icon(&self) -> &'static str {
-        match self.status_group() {
-            SmsDeliveryReportStatusGroup::Sent => "📤",
-            SmsDeliveryReportStatusGroup::Received => "✅",
-            SmsDeliveryReportStatusGroup::PermanentFailure => "❌",
-            SmsDeliveryReportStatusGroup::TemporaryFailure => "🔄",
+        match self.status_category {
+            SmsDeliveryReportStatusCategory::Sent => "📤",
+            SmsDeliveryReportStatusCategory::Received => "✅",
+            SmsDeliveryReportStatusCategory::Retrying => "🔄",
+            SmsDeliveryReportStatusCategory::Failed => "❌",
         }
     }
 
     fn style(&self, theme: &Theme) -> Style {
-        match self.status_group() {
-            SmsDeliveryReportStatusGroup::Sent => Style::default().fg(theme.text_accent),
-            SmsDeliveryReportStatusGroup::Received => Style::default()
+        match self.status_category {
+            SmsDeliveryReportStatusCategory::Sent => Style::default().fg(theme.text_accent),
+            SmsDeliveryReportStatusCategory::Received => Style::default()
                 .fg(theme.text_accent)
                 .add_modifier(Modifier::BOLD),
-            SmsDeliveryReportStatusGroup::PermanentFailure => {
+            SmsDeliveryReportStatusCategory::Retrying => Style::default().fg(theme.text_muted),
+            SmsDeliveryReportStatusCategory::Failed => {
                 theme.error_style().add_modifier(Modifier::BOLD)
             }
-            SmsDeliveryReportStatusGroup::TemporaryFailure => Style::default().fg(theme.text_muted),
         }
     }
 
     fn to_timeline_entry(&self, theme: &Theme) -> Line<'static> {
-        let time_str = match self.timestamp() {
-            Some(dt) => dt.format("%H:%M:%S").to_string(),
-            None => "--:--:--".to_string(),
-        };
+        let time_str = self
+            .timestamp
+            .map(|dt| dt.format("%H:%M:%S").to_string())
+            .unwrap_or_else(|| "--:--:--".to_string());
 
         let style = self.style(theme);
 
         Line::from(vec![
             Span::styled(format!("{} ", self.icon()), style),
             Span::styled(format!("{time_str} "), theme.secondary_style()),
-            Span::styled(self.display_text().to_string(), style),
+            Span::styled(self.status_category.to_string(), style),
         ])
     }
 }
@@ -107,21 +98,16 @@ impl DeliveryReportsModal {
     }
 
     /// Create an initialized modal with a set of delivery reports.
-    pub fn with_reports(message: SmsMessage, api_reports: Vec<HttpSmsDeliveryReport>) -> Self {
-        let mut reports = Vec::new();
+    pub fn with_reports(message: SmsMessage, api_reports: Vec<SmsDeliveryReport>) -> Self {
+        let mut reports: Vec<ReportEntry> = api_reports.iter().map(ReportEntry::from_api).collect();
 
         // Add synthetic "sent" report if available
-        if let Some(timestamp) = message.parse_message_timestamp() {
-            reports.push(ReportEntry::Sent {
-                timestamp: Some(timestamp),
-            });
+        if let Some(timestamp) = message.created_at() {
+            reports.push(ReportEntry::sent(timestamp));
         }
 
-        // Add API reports
-        reports.extend(api_reports.into_iter().map(ReportEntry::Api));
-
         // Sort by timestamp (newest first), None values last
-        reports.sort_by(|a, b| match (a.timestamp(), b.timestamp()) {
+        reports.sort_by(|a, b| match (a.timestamp, b.timestamp) {
             (Some(a_time), Some(b_time)) => b_time.cmp(&a_time),
             (Some(_), None) => std::cmp::Ordering::Less,
             (None, Some(_)) => std::cmp::Ordering::Greater,
@@ -135,24 +121,20 @@ impl DeliveryReportsModal {
     }
 
     fn render_timeline(&self, theme: &Theme) -> Vec<Line<'static>> {
-        let mut lines = Vec::new();
-
-        match &self.reports {
-            Some(reports) => {
-                for report in reports.iter().take(Self::MAX_REPORTS_USIZE) {
-                    lines.push(report.to_timeline_entry(theme));
-                }
-            }
-            None => {
-                lines.push(Line::raw("Loading..."));
-            }
-        }
+        let mut lines: Vec<Line<'static>> = self
+            .reports
+            .as_ref()
+            .map(|reports| {
+                reports
+                    .iter()
+                    .take(Self::MAX_REPORTS_USIZE)
+                    .map(|r| r.to_timeline_entry(theme))
+                    .collect()
+            })
+            .unwrap_or_else(|| vec![Line::raw("Loading...")]);
 
         // Pad to consistent height
-        while lines.len() < Self::MAX_REPORTS_USIZE {
-            lines.push(Line::raw(""));
-        }
-
+        lines.resize_with(Self::MAX_REPORTS_USIZE, || Line::raw(""));
         lines.push(Line::raw(""));
         lines
     }
@@ -176,7 +158,7 @@ impl ModalComponent for DeliveryReportsModal {
                     Constraint::Min(1),                         // Middle padding
                     Constraint::Length(1),                      // Help text
                 ])
-                .split(area);
+                    .split(area);
 
                 let timeline_paragraph =
                     Paragraph::new(self.render_timeline(theme)).alignment(Alignment::Left);
@@ -201,12 +183,16 @@ impl ModalComponent for DeliveryReportsModal {
         let message = self.message.clone();
         ModalLoadBehaviour::Function(Box::new(move |ctx| {
             tokio::spawn(async move {
-                // Get all delivery reports for target message.
                 let pagination =
                     HttpPaginationOptions::default().with_limit(Self::MAX_REPORTS_USIZE as u64);
                 let reports = match ctx
                     .0
-                    .get_delivery_reports(message.message_id, Some(pagination))
+                    .get_delivery_reports(
+                        message
+                            .message_id
+                            .expect("SmsMessage is missing required message_id!"),
+                        Some(pagination),
+                    )
                     .await
                 {
                     Ok(reports) => reports,
@@ -226,9 +212,6 @@ impl ModalComponent for DeliveryReportsModal {
                 let _ = ctx.1.send(AppAction::SetModal(Some(modal)));
             });
 
-            // Show temporary loading modal, and block the current (DeliveryReportsModal)
-            // from being set. The loader above will then either change view state or modal,
-            // which will dismiss the loading modal.
             let modal = AppModal::new(
                 "delivery_reports_loading",
                 LoadingModal::new("Loading delivery reports..."),

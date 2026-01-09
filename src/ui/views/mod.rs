@@ -8,12 +8,12 @@ mod phonebook;
 use crossterm::event::KeyEvent;
 use ratatui::Frame;
 use std::fmt::Display;
-
+use sms_types::sms::SmsMessage;
 use crate::app::AppContext;
 use crate::error::{AppError, AppResult};
 use crate::modals::{AppModal, ModalResponse};
 use crate::theme::Theme;
-use crate::types::{AppAction, SmsMessage};
+use crate::types::AppAction;
 use crate::ui::{ModalResponderComponent, ViewBase};
 
 /*
@@ -268,7 +268,7 @@ impl CurrentView {
             if phone_number == &message.phone_number {
                 // Suppress the notification from showing, since we're already
                 // on the view that the notification would take us to anyway.
-                view.add_live_message(message);
+                view.add_live_message(message.clone());
                 return true;
             }
         }

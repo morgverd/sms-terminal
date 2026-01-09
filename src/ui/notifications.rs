@@ -4,9 +4,8 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Clear, Paragraph, Wrap};
 use ratatui::Frame;
-use sms_client::types::ModemStatusUpdateState;
 use std::time::{Duration, Instant};
-
+use sms_types::modem::ModemStatusUpdateState;
 use crate::error::AppResult;
 use crate::theme::Theme;
 use crate::types::AppAction;
@@ -27,6 +26,10 @@ pub enum NotificationType {
         connected: bool,
         reconnect: bool,
     },
+    Failure {
+        title: String,
+        message: String,
+    },
     GenericMessage {
         color: Color,
         icon: String,
@@ -46,6 +49,7 @@ impl NotificationMessage {
             NotificationType::IncomingMessage { phone, .. } => Some(phone.clone()),
             NotificationType::OnlineStatus { .. }
             | NotificationType::WebSocketConnectionUpdate { .. }
+            | NotificationType::Failure { .. }
             | NotificationType::GenericMessage { .. } => None,
         }
     }
@@ -83,11 +87,8 @@ fn get_notification_style(notification: &NotificationMessage, theme: &Theme) -> 
             border_color: theme.text_accent,
             title_color: theme.text_accent,
         },
-        NotificationType::OnlineStatus {
-            current: current_state,
-            ..
-        } => {
-            let (icon, color) = match current_state {
+        NotificationType::OnlineStatus { current, .. } => {
+            let (icon, color) = match current {
                 ModemStatusUpdateState::Online => ("🟢", Color::Green),
                 ModemStatusUpdateState::Offline => ("🔴", Color::Red),
                 ModemStatusUpdateState::Startup | ModemStatusUpdateState::ShuttingDown => {
@@ -117,6 +118,12 @@ fn get_notification_style(notification: &NotificationMessage, theme: &Theme) -> 
                 title_color: color,
             }
         }
+        NotificationType::Failure { title, .. } => NotificationStyle {
+            title: title.into(),
+            icon: "❌".to_string(),
+            border_color: Color::Red,
+            title_color: Color::Red,
+        },
         NotificationType::GenericMessage {
             icon, color, title, ..
         } => NotificationStyle {
@@ -136,6 +143,7 @@ fn calculate_notification_height(notification: &NotificationMessage, is_top: boo
         }
         NotificationType::OnlineStatus { .. }
         | NotificationType::WebSocketConnectionUpdate { .. }
+        | NotificationType::Failure { .. }
         | NotificationType::GenericMessage { .. } => 3,
     };
 
@@ -288,7 +296,8 @@ impl NotificationsView {
                     base_style,
                 )));
             }
-            NotificationType::GenericMessage { message, .. } => {
+            NotificationType::Failure { message, .. }
+            | NotificationType::GenericMessage { message, .. } => {
                 lines.push(Line::from(Span::styled(message.clone(), base_style)));
             }
         }

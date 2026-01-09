@@ -1,10 +1,10 @@
+use color_eyre::eyre::anyhow;
 use color_eyre::Result;
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
-use ratatui::style::Color;
+use crossterm::event::{self, KeyCode, KeyEvent, KeyEventKind};
 use ratatui::DefaultTerminal;
 use sms_client::http::HttpClient;
-use sms_client::ws::types::WebsocketMessage;
 use sms_client::Client;
+use sms_types::events::Event;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
@@ -13,7 +13,7 @@ use tokio::time::interval;
 use crate::error::{AppError, AppResult};
 use crate::modals::{AppModal, ModalLoadBehaviour};
 use crate::theme::ThemeManager;
-use crate::types::{AppAction, KeyDebouncer, KeyPress, SmsMessage, DEBOUNCE_DURATION};
+use crate::types::{AppAction, KeyDebouncer, KeyPress, DEBOUNCE_DURATION};
 use crate::ui::notifications::{NotificationType, NotificationsView};
 use crate::ui::views::{ViewManager, ViewStateRequest};
 use crate::ui::ViewBase;
@@ -43,7 +43,7 @@ impl App {
 
         // Create return channel and context.
         let (tx, rx) = mpsc::unbounded_channel();
-        let context: AppContext = (client.http_arc()?, tx.clone());
+        let context: AppContext = (client.http_arc().map_err(|e| anyhow!("{e:?}"))?, tx.clone());
 
         Ok(Self {
             view_manager: ViewManager::new(context),
@@ -72,9 +72,7 @@ impl App {
         } else {
             // Show a notification informing the user that their websocket
             // is disabled and therefore live updates will not work
-            let notification = NotificationType::GenericMessage {
-                color: Color::Yellow,
-                icon: "❌".to_string(),
+            let notification = NotificationType::Failure {
                 title: "WebSocket Disabled".to_string(),
                 message: "Live updates will not show!".to_string(),
             };
@@ -85,9 +83,7 @@ impl App {
         // where the sentry dsn is always set. Therefore, if it isn't show a warning.
         #[cfg(feature = "sentry")]
         if !self.sentry_enabled {
-            let notification = NotificationType::GenericMessage {
-                color: Color::Yellow,
-                icon: "❌".to_string(),
+            let notification = NotificationType::Failure {
                 title: "Sentry Inactive".to_string(),
                 message: "Sentry feature is compiled, but is not configured!".to_string(),
             };
@@ -125,7 +121,7 @@ impl App {
 
             // Poll for key input
             while event::poll(Duration::from_millis(0))? {
-                if let Event::Key(key) = event::read()? {
+                if let event::Event::Key(key) = event::read()? {
                     if key.kind == KeyEventKind::Release {
                         continue;
                     }
@@ -171,16 +167,15 @@ impl App {
             }
             AppAction::SetModal(modal) => self.set_modal(modal),
             AppAction::Exit => return true,
-            AppAction::HandleIncomingMessage(sms_message) => {
+            AppAction::HandleMessage(sms_message) => {
                 // Try to add the incoming message to the current view
-                let msg = SmsMessage::from(&sms_message);
-                let show_notification = !self.view_manager.try_add_message(&msg);
+                let show_notification = !self.view_manager.try_add_message(&sms_message);
 
                 // Show incoming notification if not suppressed by view
                 if show_notification && !sms_message.is_outgoing {
                     let notification = NotificationType::IncomingMessage {
                         phone: sms_message.phone_number.clone(),
-                        content: msg.content,
+                        content: sms_message.message_content,
                     };
                     self.notifications.add_notification(notification);
                 }
@@ -245,9 +240,7 @@ impl App {
 
     fn set_modal(&mut self, modal: Option<AppModal>) {
         // Allow the modal to determine if background views should render.
-        self.render_views = modal
-            .as_ref()
-            .is_none_or(super::modals::AppModal::should_render_views);
+        self.render_views = modal.as_ref().is_none_or(AppModal::should_render_views);
 
         if let Some(ref modal) = modal {
             // Call modal loader, which can take the current AppContext for async loading.
@@ -277,14 +270,14 @@ impl App {
         let ws_sender = self.message_sender.clone();
         self.sms_client
             .on_message_simple(move |message| match message {
-                WebsocketMessage::IncomingMessage(sms) | WebsocketMessage::OutgoingMessage(sms) => {
-                    let _ = ws_sender.send(AppAction::HandleIncomingMessage(sms));
+                Event::IncomingMessage(sms) | Event::OutgoingMessage(sms) => {
+                    let _ = ws_sender.send(AppAction::HandleMessage(sms));
                 }
-                WebsocketMessage::ModemStatusUpdate { previous, current } => {
+                Event::ModemStatusUpdate { previous, current } => {
                     let notification = NotificationType::OnlineStatus { previous, current };
                     let _ = ws_sender.send(AppAction::ShowNotification(notification));
                 }
-                WebsocketMessage::WebsocketConnectionUpdate {
+                Event::WebsocketConnectionUpdate {
                     connected,
                     reconnect,
                 } => {

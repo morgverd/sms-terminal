@@ -1,9 +1,6 @@
-use ansi_escape_sequences::strip_ansi;
-use chrono::{DateTime, Local, NaiveDateTime, TimeZone};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use sms_client::types::SmsStoredMessage;
 use std::time::{Duration, Instant};
-use unicode_general_category::{get_general_category, GeneralCategory};
+use sms_types::sms::SmsMessage;
 
 use crate::modals::AppModal;
 use crate::ui::notifications::NotificationType;
@@ -16,7 +13,7 @@ pub enum AppAction {
         dismiss_modal: bool,
     },
     SetModal(Option<AppModal>),
-    HandleIncomingMessage(SmsStoredMessage),
+    HandleMessage(SmsMessage),
     ShowNotification(NotificationType),
     ShowError {
         message: String,
@@ -27,79 +24,6 @@ pub enum AppAction {
     /// Unimplemented, but left to hopefully spur me into finishing
     /// it since it is the only thing showing warnings on compile!
     DeliveryFailure(String),
-}
-
-/// A shortened version of a `StoredSmsMessage` that only
-/// stores the information used in `messages_table`.
-#[derive(Clone, Debug, PartialEq)]
-pub struct SmsMessage {
-    pub phone_number: String,
-    pub identifier: String,
-    pub direction: String,
-    pub timestamp: String,
-    pub content: String,
-
-    /// Not displayed directly in table, but used for message identification.
-    pub is_outgoing: bool,
-    pub message_id: i64,
-}
-impl SmsMessage {
-    pub fn ref_array(&self) -> [&String; 4] {
-        [
-            &self.identifier,
-            &self.direction,
-            &self.timestamp,
-            &self.content,
-        ]
-    }
-
-    /// Parse DD/MM/YY HH:MM format into Local `DateTime`.
-    pub fn parse_message_timestamp(&self) -> Option<DateTime<Local>> {
-        match NaiveDateTime::parse_from_str(&self.timestamp, "%d/%m/%y %H:%M") {
-            Ok(naive_dt) => Local.from_local_datetime(&naive_dt).single(),
-            Err(_) => None,
-        }
-    }
-}
-impl From<&SmsStoredMessage> for SmsMessage {
-    fn from(value: &SmsStoredMessage) -> Self {
-        // Get datetime from timestamp value, or local time if unset / invalid.
-        let dt = value
-            .completed_at
-            .or(value.created_at)
-            .and_then(|t| Local.timestamp_opt(i64::from(t), 0).single())
-            .unwrap_or_else(Local::now);
-
-        Self {
-            phone_number: value.phone_number.clone(),
-            identifier: value.message_id.to_string(),
-            direction: if value.is_outgoing {
-                "← OUT"
-            } else {
-                "→ IN"
-            }
-            .to_string(),
-            timestamp: dt.format("%d/%m/%y %H:%M").to_string(),
-
-            // Remove all control characters from being displayed.
-            // This includes newlines etc.
-            content: strip_ansi(&value.message_content)
-                .chars()
-                .filter(|c| {
-                    !c.is_control()
-                        && !matches!(
-                            get_general_category(*c),
-                            GeneralCategory::Format
-                                | GeneralCategory::Control
-                                | GeneralCategory::Unassigned
-                        )
-                })
-                .collect(),
-
-            is_outgoing: value.is_outgoing,
-            message_id: value.message_id,
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
