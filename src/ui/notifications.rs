@@ -1,16 +1,16 @@
+use crate::error::AppResult;
+use crate::theme::Theme;
+use crate::types::AppAction;
+use crate::ui::views::ViewStateRequest;
+use crate::ui::ViewBase;
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::{Alignment, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Clear, Paragraph, Wrap};
 use ratatui::Frame;
+use sms_client::types::modem::ModemStatusUpdateState;
 use std::time::{Duration, Instant};
-use sms_types::modem::ModemStatusUpdateState;
-use crate::error::AppResult;
-use crate::theme::Theme;
-use crate::types::AppAction;
-use crate::ui::views::ViewStateRequest;
-use crate::ui::ViewBase;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum NotificationType {

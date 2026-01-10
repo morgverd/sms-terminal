@@ -1,12 +1,3 @@
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use ratatui::layout::{Alignment, Constraint, Layout};
-use ratatui::prelude::Color;
-use ratatui::style::palette::tailwind;
-use ratatui::style::{Modifier, Style};
-use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, BorderType, Clear, Paragraph, Wrap};
-use ratatui::Frame;
-use sms_types::sms::{SmsMessage, SmsOutgoingMessage};
 use crate::app::AppContext;
 use crate::error::AppResult;
 use crate::modals::{AppModal, ModalMetadata, ModalResponse};
@@ -17,6 +8,15 @@ use crate::ui::modals::loading::LoadingModal;
 use crate::ui::notifications::NotificationType;
 use crate::ui::views::ViewStateRequest;
 use crate::ui::{centered_rect, ModalResponderComponent, ViewBase};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use ratatui::layout::{Alignment, Constraint, Layout};
+use ratatui::prelude::Color;
+use ratatui::style::palette::tailwind;
+use ratatui::style::{Modifier, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, BorderType, Clear, Paragraph, Wrap};
+use ratatui::Frame;
+use sms_client::types::sms::{SmsMessage, SmsOutgoingMessage};
 
 const BASE_SEND_TIMEOUT: usize = 30;
 

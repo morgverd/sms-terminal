@@ -4,8 +4,6 @@ use ratatui::style::{Color, Style};
 use ratatui::widgets::{Block, BorderType, Clear, List, ListItem, Paragraph};
 use ratatui::Frame;
 
-use sms_client::error::ClientError;
-use sms_types::http::{HttpPaginationOptions, LatestNumberFriendlyNamePair};
 use crate::app::AppContext;
 use crate::error::AppResult;
 use crate::modals::{AppModal, ModalMetadata, ModalResponse};
@@ -15,6 +13,8 @@ use crate::ui::modals::text_input::TextInputModal;
 use crate::ui::notifications::NotificationType;
 use crate::ui::views::ViewStateRequest;
 use crate::ui::{centered_rect, ModalResponderComponent, ViewBase};
+use sms_client::error::ClientError;
+use sms_client::types::http::{HttpPaginationOptions, LatestNumberFriendlyNamePair};
 
 pub struct PhonebookView {
     context: AppContext,

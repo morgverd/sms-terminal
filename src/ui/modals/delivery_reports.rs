@@ -1,14 +1,3 @@
-use std::time::SystemTime;
-use chrono::{DateTime, Local, TimeZone};
-use crossterm::event::{KeyCode, KeyEvent};
-use ratatui::layout::{Alignment, Constraint, Layout};
-use ratatui::prelude::{Line, Modifier, Span, Style};
-use ratatui::widgets::Paragraph;
-use ratatui::Frame;
-use sms_client::error::ClientError;
-use sms_types::http::HttpPaginationOptions;
-use sms_types::sms::{SmsDeliveryReport, SmsDeliveryReportStatusCategory, SmsMessage};
-
 use crate::error::AppError;
 use crate::modals::{AppModal, ModalResponse};
 use crate::theme::Theme;
@@ -16,6 +5,16 @@ use crate::types::AppAction;
 use crate::ui::modals::loading::LoadingModal;
 use crate::ui::modals::{ModalComponent, ModalLoadBehaviour, ModalUtils};
 use crate::ui::views::ViewStateRequest;
+use chrono::{DateTime, Local, TimeZone};
+use crossterm::event::{KeyCode, KeyEvent};
+use ratatui::layout::{Alignment, Constraint, Layout};
+use ratatui::prelude::{Line, Modifier, Span, Style};
+use ratatui::widgets::Paragraph;
+use ratatui::Frame;
+use sms_client::error::ClientError;
+use sms_client::types::http::HttpPaginationOptions;
+use sms_client::types::sms::{SmsDeliveryReport, SmsDeliveryReportStatusCategory, SmsMessage};
+use std::time::SystemTime;
 
 /// A delivery report entry with pre-computed fields for efficient rendering.
 #[derive(Debug, Clone, PartialEq)]
@@ -158,7 +157,7 @@ impl ModalComponent for DeliveryReportsModal {
                     Constraint::Min(1),                         // Middle padding
                     Constraint::Length(1),                      // Help text
                 ])
-                    .split(area);
+                .split(area);
 
                 let timeline_paragraph =
                     Paragraph::new(self.render_timeline(theme)).alignment(Alignment::Left);

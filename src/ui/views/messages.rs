@@ -1,3 +1,11 @@
+use crate::app::AppContext;
+use crate::error::{AppError, AppResult};
+use crate::modals::AppModal;
+use crate::theme::Theme;
+use crate::types::AppAction;
+use crate::ui::modals::delivery_reports::DeliveryReportsModal;
+use crate::ui::views::ViewStateRequest;
+use crate::ui::ViewBase;
 use ansi_escape_sequences::strip_ansi;
 use chrono::{Local, TimeZone};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -9,18 +17,10 @@ use ratatui::widgets::{
     ScrollbarState, Table, TableState,
 };
 use ratatui::Frame;
-use sms_types::http::HttpPaginationOptions;
-use sms_types::sms::SmsMessage;
-use unicode_general_category::{GeneralCategory, get_general_category};
+use sms_client::types::http::HttpPaginationOptions;
+use sms_client::types::sms::SmsMessage;
+use unicode_general_category::{get_general_category, GeneralCategory};
 use unicode_width::UnicodeWidthStr;
-use crate::app::AppContext;
-use crate::error::{AppError, AppResult};
-use crate::modals::AppModal;
-use crate::theme::Theme;
-use crate::types::AppAction;
-use crate::ui::modals::delivery_reports::DeliveryReportsModal;
-use crate::ui::views::ViewStateRequest;
-use crate::ui::ViewBase;
 
 const ITEM_HEIGHT: usize = 4;
 const LOAD_THRESHOLD: usize = 5;
@@ -132,7 +132,8 @@ impl MessagesView {
         self.messages.insert(0, record);
         self.total_messages = self.messages.len();
         self.update_constraints();
-        self.scroll_state = ScrollbarState::new(self.messages.len().saturating_sub(1) * ITEM_HEIGHT);
+        self.scroll_state =
+            ScrollbarState::new(self.messages.len().saturating_sub(1) * ITEM_HEIGHT);
     }
 
     fn reset(&mut self) {
@@ -184,17 +185,22 @@ impl MessagesView {
     fn handle_new_messages(&mut self, new_messages: Vec<SmsMessage>) {
         if self.current_offset == 0 {
             // First load: convert and replace
-            self.messages = new_messages.into_iter().map(SmsMessageTableRecord::from).collect();
+            self.messages = new_messages
+                .into_iter()
+                .map(SmsMessageTableRecord::from)
+                .collect();
             self.state.select(Some(0));
         } else {
             // Append: extend with converted messages
-            self.messages.extend(new_messages.into_iter().map(SmsMessageTableRecord::from));
+            self.messages
+                .extend(new_messages.into_iter().map(SmsMessageTableRecord::from));
         }
 
         self.current_offset += MESSAGES_PER_PAGE;
         self.total_messages = self.messages.len();
         self.update_constraints();
-        self.scroll_state = ScrollbarState::new(self.messages.len().saturating_sub(1) * ITEM_HEIGHT);
+        self.scroll_state =
+            ScrollbarState::new(self.messages.len().saturating_sub(1) * ITEM_HEIGHT);
     }
 
     fn update_constraints(&mut self) {
@@ -335,18 +341,18 @@ impl MessagesView {
                 Constraint::Min(self.longest_item_lens.3),
             ],
         )
-            .header(header)
-            .row_highlight_style(selected_row_style)
-            .column_highlight_style(selected_col_style)
-            .cell_highlight_style(selected_cell_style)
-            .highlight_symbol(Text::from(vec![
-                Line::from(""),
-                Line::from(bar),
-                Line::from(bar),
-                Line::from(""),
-            ]))
-            .bg(theme.bg)
-            .highlight_spacing(HighlightSpacing::Always);
+        .header(header)
+        .row_highlight_style(selected_row_style)
+        .column_highlight_style(selected_col_style)
+        .cell_highlight_style(selected_cell_style)
+        .highlight_symbol(Text::from(vec![
+            Line::from(""),
+            Line::from(bar),
+            Line::from(bar),
+            Line::from(""),
+        ]))
+        .bg(theme.bg)
+        .highlight_spacing(HighlightSpacing::Always);
 
         frame.render_stateful_widget(t, area, &mut self.state);
     }
@@ -451,10 +457,8 @@ impl ViewBase for MessagesView {
 
                 // Clone only when actually needed for the modal
                 return message.original_message.as_ref().map(|orig| {
-                    let modal = AppModal::new(
-                        "delivery_reports",
-                        DeliveryReportsModal::new(orig.clone()),
-                    );
+                    let modal =
+                        AppModal::new("delivery_reports", DeliveryReportsModal::new(orig.clone()));
                     AppAction::SetModal(Some(modal))
                 });
             }

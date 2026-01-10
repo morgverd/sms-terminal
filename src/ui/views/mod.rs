@@ -5,16 +5,16 @@ mod main_menu;
 mod messages;
 mod phonebook;
 
-use crossterm::event::KeyEvent;
-use ratatui::Frame;
-use std::fmt::Display;
-use sms_types::sms::SmsMessage;
 use crate::app::AppContext;
 use crate::error::{AppError, AppResult};
 use crate::modals::{AppModal, ModalResponse};
 use crate::theme::Theme;
 use crate::types::AppAction;
 use crate::ui::{ModalResponderComponent, ViewBase};
+use crossterm::event::KeyEvent;
+use ratatui::Frame;
+use sms_client::types::sms::SmsMessage;
+use std::fmt::Display;
 
 /*
    Quite happy with this, instead of storing every initialized view on the

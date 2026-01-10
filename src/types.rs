@@ -1,6 +1,6 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use sms_client::types::sms::SmsMessage;
 use std::time::{Duration, Instant};
-use sms_types::sms::SmsMessage;
 
 use crate::modals::AppModal;
 use crate::ui::notifications::NotificationType;
