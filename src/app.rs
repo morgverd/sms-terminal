@@ -209,7 +209,7 @@ impl App {
             return None;
         }
 
-        // TODO: FIND BETTER KEYS.
+        // Theme controls
         if key.code == KeyCode::F(10) {
             self.theme_manager.next();
             return None;

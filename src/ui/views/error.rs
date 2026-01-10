@@ -44,7 +44,7 @@ impl ViewBase for ErrorView {
             .title(" Error ")
             .title_alignment(Alignment::Center)
             .border_type(BorderType::Rounded)
-            .border_style(theme.error_style());
+            .border_style(theme.error_style);
 
         let inner = block.inner(area);
         frame.render_widget(block, area);
@@ -59,7 +59,7 @@ impl ViewBase for ErrorView {
 
         // Error message with proper styling
         let error_text = Paragraph::new(ctx.0.to_string())
-            .style(theme.error_style())
+            .style(theme.error_style)
             .wrap(Wrap { trim: true })
             .alignment(Alignment::Center);
         frame.render_widget(error_text, layout[1]);

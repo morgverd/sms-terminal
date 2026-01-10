@@ -25,6 +25,9 @@ use unicode_width::UnicodeWidthStr;
 const ITEM_HEIGHT: usize = 4;
 const LOAD_THRESHOLD: usize = 5;
 const MESSAGES_PER_PAGE: u64 = 20;
+const MIN_CONTENT_WIDTH: u16 = 25;
+const DIRECTION_COL_WIDTH: u16 = 8;
+const TIMESTAMP_COL_WIDTH: u16 = 16;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct SmsMessageTableRecord {
@@ -108,7 +111,7 @@ impl MessagesView {
             context,
             state: TableState::default(),
             messages: Vec::new(),
-            longest_item_lens: (10, 10, 20, 50),
+            id_column_width: 10,
             scroll_state: ScrollbarState::new(0),
             is_loading: false,
             has_more: true,
@@ -177,7 +180,7 @@ impl MessagesView {
                 self.has_more = count == MESSAGES_PER_PAGE as usize;
                 Ok(())
             }
-            Err(e) => Err(AppError::Http(e)),
+            Err(e) => Err(AppError::from(e)),
         }
     }
 
@@ -203,8 +206,8 @@ impl MessagesView {
             ScrollbarState::new(self.messages.len().saturating_sub(1) * ITEM_HEIGHT);
     }
 
-    fn update_constraints(&mut self) {
-        let id_len = self
+    fn update_id_column_width(&mut self) {
+        self.id_column_width = self
             .messages
             .iter()
             .map(|m| m.identifier.width())
@@ -238,7 +241,48 @@ impl MessagesView {
         if !self.has_more || self.is_loading || self.messages.is_empty() {
             return Ok(());
         }
+        let wrapped = textwrap::fill(content, wrap_width);
+        let line_count = wrapped.lines().count();
+        u16::try_from(line_count + 2).unwrap_or(3).max(3)
+    }
 
+    fn update_scroll_state(&mut self) {
+        if self.messages.is_empty() {
+            return;
+        }
+        let selected = self.state.selected().unwrap_or(0);
+        let max_scroll = self.messages.len().saturating_sub(1);
+        self.scroll_state = ScrollbarState::new(max_scroll).position(selected);
+    }
+
+    fn next_row(&mut self) {
+        if self.messages.is_empty() {
+            return;
+        }
+        let current = self.state.selected().unwrap_or(0);
+        let next = (current + 1).min(self.messages.len() - 1);
+        if next != current {
+            self.update_selection(next);
+            self.update_scroll_state();
+        }
+    }
+
+    fn previous_row(&mut self) {
+        if self.messages.is_empty() {
+            return;
+        }
+        let current = self.state.selected().unwrap_or(0);
+        let previous = current.saturating_sub(1);
+        if previous != current {
+            self.update_selection(previous);
+            self.update_scroll_state();
+        }
+    }
+
+    async fn check_load_more(&mut self, phone_number: &str) -> AppResult<()> {
+        if !self.has_more || self.is_loading || self.messages.is_empty() {
+            return Ok(());
+        }
         if let Some(selected) = self.state.selected() {
             let load_point = self.messages.len().saturating_sub(LOAD_THRESHOLD);
             if selected >= load_point {
@@ -248,37 +292,8 @@ impl MessagesView {
         Ok(())
     }
 
-    fn next_row(&mut self) {
-        if self.messages.is_empty() {
-            return;
-        }
-
-        let current = self.state.selected().unwrap_or(0);
-        let next = (current + 1).min(self.messages.len() - 1);
-
-        if next != current {
-            self.state.select(Some(next));
-            self.scroll_state = self.scroll_state.position(next * ITEM_HEIGHT);
-            self.update_selection(next);
-        }
-    }
-
-    fn previous_row(&mut self) {
-        if self.messages.is_empty() {
-            return;
-        }
-
-        let current = self.state.selected().unwrap_or(0);
-        let previous = current.saturating_sub(1);
-
-        if previous != current {
-            self.state.select(Some(previous));
-            self.scroll_state = self.scroll_state.position(previous * ITEM_HEIGHT);
-            self.update_selection(previous);
-        }
-    }
-
     fn update_selection(&mut self, idx: usize) {
+        self.state.select(Some(idx));
         self.is_selected_outgoing = self.messages.get(idx).is_some_and(|m| m.is_outgoing);
     }
 
@@ -288,6 +303,33 @@ impl MessagesView {
 
     fn previous_column(&mut self) {
         self.state.select_previous_column();
+    }
+
+    fn build_highlight_symbol(&self, row_height: u16) -> Text<'static> {
+        let bar = " █ ";
+        let height = row_height as usize;
+
+        if height <= 2 {
+            Text::from(vec![Line::from(bar), Line::from(bar)])
+        } else {
+            let mut lines = Vec::with_capacity(height);
+            lines.push(Line::from(""));
+            for _ in 1..height.saturating_sub(1) {
+                lines.push(Line::from(bar));
+            }
+            lines.push(Line::from(""));
+            Text::from(lines)
+        }
+    }
+
+    /// Calculate wrap width for content column based on available area
+    fn content_wrap_width(&self, area_width: u16) -> usize {
+        let fixed_columns =
+            self.id_column_width + 1 + DIRECTION_COL_WIDTH + 1 + TIMESTAMP_COL_WIDTH + 1;
+        let margins_and_scrollbar = 12;
+        area_width
+            .saturating_sub(fixed_columns + margins_and_scrollbar)
+            .max(MIN_CONTENT_WIDTH) as usize
     }
 
     fn render_table(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
@@ -306,6 +348,15 @@ impl MessagesView {
             .collect::<Row>()
             .style(header_style)
             .height(1);
+
+        let wrap_width = self.content_wrap_width(area.width);
+
+        let selected_row_height = self
+            .state
+            .selected()
+            .and_then(|idx| self.messages.get(idx))
+            .map(|msg| self.calculate_row_height(&msg.content, wrap_width))
+            .unwrap_or(3);
 
         let rows = self.messages.iter().enumerate().map(|(i, msg)| {
             let color = if i % 2 == 0 {
@@ -328,33 +379,27 @@ impl MessagesView {
                 })
                 .collect::<Row>()
                 .style(Style::new().fg(theme.text_primary).bg(color))
-                .height(4)
+                .height(row_height)
         });
 
-        let bar = " █ ";
-        let t = Table::new(
+        let table = Table::new(
             rows,
             [
-                Constraint::Length(self.longest_item_lens.0 + 1),
-                Constraint::Length(self.longest_item_lens.1 + 1),
-                Constraint::Length(self.longest_item_lens.2 + 1),
-                Constraint::Min(self.longest_item_lens.3),
+                Constraint::Length(self.id_column_width + 1),
+                Constraint::Length(DIRECTION_COL_WIDTH + 1),
+                Constraint::Length(TIMESTAMP_COL_WIDTH + 1),
+                Constraint::Min(MIN_CONTENT_WIDTH),
             ],
         )
         .header(header)
         .row_highlight_style(selected_row_style)
         .column_highlight_style(selected_col_style)
         .cell_highlight_style(selected_cell_style)
-        .highlight_symbol(Text::from(vec![
-            Line::from(""),
-            Line::from(bar),
-            Line::from(bar),
-            Line::from(""),
-        ]))
+        .highlight_symbol(self.build_highlight_symbol(selected_row_height))
         .bg(theme.bg)
         .highlight_spacing(HighlightSpacing::Always);
 
-        frame.render_stateful_widget(t, area, &mut self.state);
+        frame.render_stateful_widget(table, area, &mut self.state);
     }
 
     fn render_scrollbar(&mut self, frame: &mut Frame, area: Rect) {
@@ -412,7 +457,7 @@ impl MessagesView {
             .block(
                 Block::bordered()
                     .border_type(BorderType::Double)
-                    .border_style(theme.border_focused_style()),
+                    .border_style(theme.border_focused_style),
             );
         frame.render_widget(info_footer, area);
     }
@@ -424,7 +469,9 @@ impl ViewBase for MessagesView {
     async fn load(&mut self, ctx: Self::Context<'_>) -> AppResult<()> {
         self.reversed = ctx.1;
         self.reload(ctx.0).await?;
-        self.is_selected_outgoing = self.messages.first().is_some_and(|m| m.is_outgoing);
+        if !self.messages.is_empty() {
+            self.update_selection(0);
+        }
         Ok(())
     }
 
@@ -494,6 +541,7 @@ impl ViewBase for MessagesView {
         let layout = Layout::vertical([Constraint::Min(5), Constraint::Length(5)]);
         let rects = layout.split(frame.area());
 
+        self.update_scroll_state();
         self.render_table(frame, rects[0], theme);
         self.render_scrollbar(frame, rects[0]);
         self.render_footer(frame, rects[1], ctx.0, theme);

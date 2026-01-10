@@ -164,7 +164,7 @@ impl ModalComponent for DeliveryReportsModal {
                 frame.render_widget(timeline_paragraph, sections[1]);
 
                 let help = Paragraph::new("(Esc) close")
-                    .style(theme.primary_style())
+                    .style(theme.primary_style)
                     .alignment(Alignment::Center);
                 frame.render_widget(help, sections[2]);
             },

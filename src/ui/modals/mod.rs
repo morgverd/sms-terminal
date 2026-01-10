@@ -54,8 +54,8 @@ impl ModalUtils {
             .title(format!(" {title} "))
             .title_alignment(Alignment::Center)
             .border_type(BorderType::Double)
-            .border_style(theme.border_focused_style())
-            .style(theme.primary_style());
+            .border_style(theme.border_focused_style)
+            .style(theme.primary_style);
 
         let inner = block.inner(area);
         frame.render_widget(block, area);
@@ -159,12 +159,12 @@ pub struct ModalButtonComponentStyles {
 impl ModalButtonComponentStyles {
     pub fn from_theme(theme: &Theme) -> Self {
         Self {
-            primary_normal: theme.secondary_style(),
+            primary_normal: theme.secondary_style,
             primary_focused: Style::default()
                 .fg(theme.bg)
                 .bg(theme.text_accent)
                 .add_modifier(Modifier::BOLD),
-            secondary_normal: theme.secondary_style(),
+            secondary_normal: theme.secondary_style,
             secondary_focused: Style::default()
                 .fg(theme.bg)
                 .bg(theme.text_error)
