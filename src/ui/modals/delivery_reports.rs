@@ -58,7 +58,7 @@ impl ReportEntry {
                 .add_modifier(Modifier::BOLD),
             SmsDeliveryReportStatusCategory::Retrying => Style::default().fg(theme.text_muted),
             SmsDeliveryReportStatusCategory::Failed => {
-                theme.error_style().add_modifier(Modifier::BOLD)
+                theme.error_style.add_modifier(Modifier::BOLD)
             }
         }
     }
@@ -73,7 +73,7 @@ impl ReportEntry {
 
         Line::from(vec![
             Span::styled(format!("{} ", self.icon()), style),
-            Span::styled(format!("{time_str} "), theme.secondary_style()),
+            Span::styled(format!("{time_str} "), theme.secondary_style),
             Span::styled(self.status_category.to_string(), style),
         ])
     }
