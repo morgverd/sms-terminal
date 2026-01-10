@@ -1,14 +1,3 @@
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use ratatui::layout::{Alignment, Constraint, Layout};
-use ratatui::prelude::Color;
-use ratatui::style::palette::tailwind;
-use ratatui::style::{Modifier, Style};
-use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, BorderType, Clear, Paragraph, Wrap};
-use ratatui::Frame;
-use sms_client::http::types::HttpOutgoingSmsMessage;
-use sms_client::types::SmsStoredMessage;
-
 use crate::app::AppContext;
 use crate::error::AppResult;
 use crate::modals::{AppModal, ModalMetadata, ModalResponse};
@@ -19,6 +8,15 @@ use crate::ui::modals::loading::LoadingModal;
 use crate::ui::notifications::NotificationType;
 use crate::ui::views::ViewStateRequest;
 use crate::ui::{centered_rect, ModalResponderComponent, ViewBase};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use ratatui::layout::{Alignment, Constraint, Layout};
+use ratatui::prelude::Color;
+use ratatui::style::palette::tailwind;
+use ratatui::style::{Modifier, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, BorderType, Clear, Paragraph, Wrap};
+use ratatui::Frame;
+use sms_client::types::sms::{SmsMessage, SmsOutgoingMessage};
 
 const BASE_SEND_TIMEOUT: usize = 30;
 
@@ -308,7 +306,7 @@ impl ModalResponderComponent for ComposeView {
 
         tokio::spawn(async move {
             let length = content.len();
-            let mut message = HttpOutgoingSmsMessage::simple_message(phone.clone(), content);
+            let mut message = SmsOutgoingMessage::simple_message(phone.clone(), content);
             if let Ok(timeout) = u32::try_from(BASE_SEND_TIMEOUT * Self::get_sms_count(length)) {
                 message = message.with_timeout(timeout);
             }
@@ -317,8 +315,8 @@ impl ModalResponderComponent for ComposeView {
             let notification = match http.send_sms(&message).await {
                 Ok(response) => {
                     // Push message to views to ensure its synced even if WebSocket is disabled
-                    let stored_message = SmsStoredMessage::from((message, response));
-                    let _ = sender.send(AppAction::HandleIncomingMessage(stored_message));
+                    let stored_message = SmsMessage::from((message, response));
+                    let _ = sender.send(AppAction::HandleMessage(stored_message));
 
                     NotificationType::GenericMessage {
                         color: Color::Green,
@@ -330,9 +328,7 @@ impl ModalResponderComponent for ComposeView {
                         ),
                     }
                 }
-                Err(e) => NotificationType::GenericMessage {
-                    color: Color::Red,
-                    icon: "❌".to_string(),
+                Err(e) => NotificationType::Failure {
                     title: "Send Failure".to_string(),
                     message: e.to_string(),
                 },

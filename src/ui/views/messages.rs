@@ -1,3 +1,13 @@
+use crate::app::AppContext;
+use crate::error::{AppError, AppResult};
+use crate::modals::AppModal;
+use crate::theme::Theme;
+use crate::types::AppAction;
+use crate::ui::modals::delivery_reports::DeliveryReportsModal;
+use crate::ui::views::ViewStateRequest;
+use crate::ui::ViewBase;
+use ansi_escape_sequences::strip_ansi;
+use chrono::{Local, TimeZone};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::{Constraint, Layout, Margin, Rect};
 use ratatui::style::{Modifier, Style, Stylize};
@@ -7,29 +17,86 @@ use ratatui::widgets::{
     ScrollbarState, Table, TableState,
 };
 use ratatui::Frame;
-use sms_client::http::types::HttpPaginationOptions;
+use sms_client::types::http::HttpPaginationOptions;
+use sms_client::types::sms::SmsMessage;
+use unicode_general_category::{get_general_category, GeneralCategory};
 use unicode_width::UnicodeWidthStr;
 
-use crate::app::AppContext;
-use crate::error::{AppError, AppResult};
-use crate::modals::AppModal;
-use crate::theme::Theme;
-use crate::types::{AppAction, SmsMessage};
-use crate::ui::modals::delivery_reports::DeliveryReportsModal;
-use crate::ui::views::ViewStateRequest;
-use crate::ui::ViewBase;
-
+const ITEM_HEIGHT: usize = 4;
 const LOAD_THRESHOLD: usize = 5;
 const MESSAGES_PER_PAGE: u64 = 20;
 const MIN_CONTENT_WIDTH: u16 = 25;
 const DIRECTION_COL_WIDTH: u16 = 8;
 const TIMESTAMP_COL_WIDTH: u16 = 16;
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct SmsMessageTableRecord {
+    pub phone_number: String,
+    pub identifier: String,
+    pub direction: &'static str,
+    pub timestamp: String,
+    pub content: String,
+    pub is_outgoing: bool,
+    pub message_id: i64,
+    /// Store only fields needed for delivery reports instead of full SmsMessage
+    original_message: Option<SmsMessage>,
+}
+
+impl SmsMessageTableRecord {
+    /// Returns references to display fields, avoiding allocations
+    #[inline]
+    pub fn ref_array(&self) -> [&str; 4] {
+        [
+            &self.identifier,
+            self.direction,
+            &self.timestamp,
+            &self.content,
+        ]
+    }
+}
+impl From<SmsMessage> for SmsMessageTableRecord {
+    fn from(value: SmsMessage) -> Self {
+        let dt = value
+            .completed_at
+            .or(value.created_at)
+            .and_then(|t| Local.timestamp_opt(i64::from(t), 0).single())
+            .unwrap_or_else(Local::now);
+
+        let message_id = value.message_id.expect("SmsMessage missing message_id");
+        let is_outgoing = value.is_outgoing;
+
+        // Pre-allocate with estimated capacity for content filtering
+        let stripped = strip_ansi(&value.message_content);
+        let mut content = String::with_capacity(stripped.len());
+        content.extend(stripped.chars().filter(|c| {
+            !c.is_control()
+                && !matches!(
+                    get_general_category(*c),
+                    GeneralCategory::Format
+                        | GeneralCategory::Control
+                        | GeneralCategory::Unassigned
+                )
+        }));
+
+        Self {
+            phone_number: value.phone_number.clone(),
+            identifier: message_id.to_string(),
+            direction: if is_outgoing { "← OUT" } else { "→ IN" },
+            timestamp: dt.format("%d/%m/%y %H:%M").to_string(),
+            content,
+            is_outgoing,
+            message_id,
+            // Only store original if outgoing (needed for delivery reports)
+            original_message: if is_outgoing { Some(value) } else { None },
+        }
+    }
+}
+
 pub struct MessagesView {
     context: AppContext,
     state: TableState,
-    messages: Vec<SmsMessage>,
-    id_column_width: u16,
+    messages: Vec<SmsMessageTableRecord>,
+    longest_item_lens: (u16, u16, u16, u16),
     scroll_state: ScrollbarState,
     is_loading: bool,
     has_more: bool,
@@ -55,19 +122,21 @@ impl MessagesView {
         }
     }
 
-    pub fn add_live_message(&mut self, message: &SmsMessage) {
-        if self
-            .messages
-            .iter()
-            .any(|m| m.message_id == message.message_id)
-        {
+    /// Add a live message, taking ownership to avoid cloning
+    pub fn add_live_message(&mut self, message: SmsMessage) {
+        let message_id = message.message_id.expect("SmsMessage missing message_id");
+
+        // Check for duplicates before converting
+        if self.messages.iter().any(|m| m.message_id == message_id) {
             return;
         }
 
-        self.messages.insert(0, message.clone());
+        let record = SmsMessageTableRecord::from(message);
+        self.messages.insert(0, record);
         self.total_messages = self.messages.len();
-        self.update_id_column_width();
-        self.update_scroll_state();
+        self.update_constraints();
+        self.scroll_state =
+            ScrollbarState::new(self.messages.len().saturating_sub(1) * ITEM_HEIGHT);
     }
 
     fn reset(&mut self) {
@@ -87,6 +156,7 @@ impl MessagesView {
         if self.is_loading {
             return Ok(());
         }
+
         let pagination = HttpPaginationOptions::default()
             .with_limit(MESSAGES_PER_PAGE)
             .with_offset(self.current_offset)
@@ -103,30 +173,37 @@ impl MessagesView {
 
         match result {
             Ok(messages) => {
-                let new_messages: Vec<SmsMessage> = messages.iter().map(SmsMessage::from).collect();
-                let count = new_messages.len();
+                let count = messages.len();
                 if count > 0 {
-                    self.handle_new_messages(new_messages);
+                    self.handle_new_messages(messages);
                 }
-                self.has_more = count == usize::try_from(MESSAGES_PER_PAGE).unwrap_or(count);
+                self.has_more = count == MESSAGES_PER_PAGE as usize;
                 Ok(())
             }
             Err(e) => Err(AppError::from(e)),
         }
     }
 
+    /// Takes ownership of messages Vec to avoid intermediate allocations
     fn handle_new_messages(&mut self, new_messages: Vec<SmsMessage>) {
         if self.current_offset == 0 {
-            self.messages = new_messages;
-            self.update_selection(0);
+            // First load: convert and replace
+            self.messages = new_messages
+                .into_iter()
+                .map(SmsMessageTableRecord::from)
+                .collect();
+            self.state.select(Some(0));
         } else {
-            self.messages.extend(new_messages);
+            // Append: extend with converted messages
+            self.messages
+                .extend(new_messages.into_iter().map(SmsMessageTableRecord::from));
         }
 
         self.current_offset += MESSAGES_PER_PAGE;
         self.total_messages = self.messages.len();
-        self.update_id_column_width();
-        self.update_scroll_state();
+        self.update_constraints();
+        self.scroll_state =
+            ScrollbarState::new(self.messages.len().saturating_sub(1) * ITEM_HEIGHT);
     }
 
     fn update_id_column_width(&mut self) {
@@ -136,12 +213,33 @@ impl MessagesView {
             .map(|m| m.identifier.width())
             .max()
             .unwrap_or(10)
-            .min(20) as u16;
+            .min(20);
+
+        let content_len = self
+            .messages
+            .iter()
+            .map(|m| {
+                m.content
+                    .lines()
+                    .map(UnicodeWidthStr::width)
+                    .max()
+                    .unwrap_or(0)
+            })
+            .max()
+            .unwrap_or(50)
+            .min(80);
+
+        self.longest_item_lens = (
+            u16::try_from(id_len).unwrap_or(0),
+            8,  // direction_len is constant
+            16, // timestamp_len is constant
+            u16::try_from(content_len).unwrap_or(0),
+        );
     }
 
-    fn calculate_row_height(&self, content: &str, wrap_width: usize) -> u16 {
-        if content.is_empty() {
-            return 3;
+    async fn check_load_more(&mut self, phone_number: &str) -> AppResult<()> {
+        if !self.has_more || self.is_loading || self.messages.is_empty() {
+            return Ok(());
         }
         let wrapped = textwrap::fill(content, wrap_width);
         let line_count = wrapped.lines().count();
@@ -266,14 +364,14 @@ impl MessagesView {
             } else {
                 theme.row_alt_bg
             };
-            let item = msg.ref_array();
-            let row_height = self.calculate_row_height(&msg.content, wrap_width);
 
-            item.into_iter()
+            msg.ref_array()
+                .into_iter()
                 .enumerate()
                 .map(|(idx, content)| {
-                    let text = if idx == 3 {
-                        format!("\n{}\n", textwrap::fill(content, wrap_width))
+                    // Only wrap content column (idx 3) if needed
+                    let text = if idx == 3 && content.len() > 80 {
+                        format!("\n{}\n", textwrap::fill(content, 80))
                     } else {
                         format!("\n{content}\n")
                     };
@@ -319,14 +417,12 @@ impl MessagesView {
     }
 
     fn render_footer(&self, frame: &mut Frame, area: Rect, phone_number: &str, theme: &Theme) {
-        let mut footer_lines = vec![
-            "(↑/↓) navigate | (←/→) columns | (Ctrl+R) order".to_string(),
-            if self.is_selected_outgoing {
-                "(Esc) back | (r) reload | (c) compose SMS | (m) delivery reports".to_string()
-            } else {
-                "(Esc) back | (r) reload | (c) compose SMS".to_string()
-            },
-        ];
+        let base_controls = "(↑/↓) navigate | (←/→) columns | (Ctrl+R) order";
+        let action_controls = if self.is_selected_outgoing {
+            "(Esc) back | (r) reload | (c) compose SMS | (m) delivery reports"
+        } else {
+            "(Esc) back | (r) reload | (c) compose SMS"
+        };
 
         let order_indicator = if self.reversed {
             "↓ Oldest First"
@@ -334,7 +430,7 @@ impl MessagesView {
             "↑ Newest First"
         };
 
-        if !self.messages.is_empty() {
+        let status_line = if !self.messages.is_empty() {
             let status = if self.is_loading {
                 "⟳ Loading more..."
             } else if self.has_more {
@@ -342,20 +438,21 @@ impl MessagesView {
             } else {
                 "All loaded ✓"
             };
-            footer_lines.push(format!(
+            format!(
                 "💬 {} | ✉️ {} messages | {} | {}",
                 phone_number, self.total_messages, order_indicator, status
-            ));
+            )
         } else if self.is_loading {
-            footer_lines.push("⟳ Loading messages...".to_string());
+            "⟳ Loading messages...".to_string()
         } else if !phone_number.is_empty() {
-            footer_lines.push(format!(
-                "💬 {phone_number} | No messages found | {order_indicator}"
-            ));
-        }
+            format!("💬 {phone_number} | No messages found | {order_indicator}")
+        } else {
+            String::new()
+        };
 
-        let info_footer = Paragraph::new(Text::from(footer_lines.join("\n")))
-            .style(theme.primary_style)
+        let footer_text = format!("{base_controls}\n{action_controls}\n{status_line}");
+        let info_footer = Paragraph::new(footer_text)
+            .style(theme.primary_style())
             .centered()
             .block(
                 Block::bordered()
@@ -365,6 +462,7 @@ impl MessagesView {
         frame.render_widget(info_footer, area);
     }
 }
+
 impl ViewBase for MessagesView {
     type Context<'ctx> = (&'ctx String, bool);
 
@@ -398,15 +496,18 @@ impl ViewBase for MessagesView {
                 Err(e) => Some(ViewStateRequest::from(e)),
             },
             KeyCode::Char('m' | 'M') => {
-                let message = self.messages.get(self.state.selected()?)?;
+                let selected = self.state.selected()?;
+                let message = self.messages.get(selected)?;
                 if !message.is_outgoing {
                     return None;
                 }
-                let modal = AppModal::new(
-                    "delivery_reports",
-                    DeliveryReportsModal::new(message.clone()),
-                );
-                return Some(AppAction::SetModal(Some(modal)));
+
+                // Clone only when actually needed for the modal
+                return message.original_message.as_ref().map(|orig| {
+                    let modal =
+                        AppModal::new("delivery_reports", DeliveryReportsModal::new(orig.clone()));
+                    AppAction::SetModal(Some(modal))
+                });
             }
             KeyCode::Down => {
                 self.next_row();

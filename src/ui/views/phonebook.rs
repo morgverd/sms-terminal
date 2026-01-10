@@ -4,9 +4,6 @@ use ratatui::style::{Color, Style};
 use ratatui::widgets::{Block, BorderType, Clear, List, ListItem, Paragraph};
 use ratatui::Frame;
 
-use sms_client::error::ClientError;
-use sms_client::http::types::{HttpPaginationOptions, LatestNumberFriendlyNamePair};
-
 use crate::app::AppContext;
 use crate::error::AppResult;
 use crate::modals::{AppModal, ModalMetadata, ModalResponse};
@@ -16,6 +13,8 @@ use crate::ui::modals::text_input::TextInputModal;
 use crate::ui::notifications::NotificationType;
 use crate::ui::views::ViewStateRequest;
 use crate::ui::{centered_rect, ModalResponderComponent, ViewBase};
+use sms_client::error::ClientError;
+use sms_client::types::http::{HttpPaginationOptions, LatestNumberFriendlyNamePair};
 
 pub struct PhonebookView {
     context: AppContext,
@@ -303,9 +302,7 @@ impl ModalResponderComponent for PhonebookView {
             {
                 // If the edit failed, show a notification.
                 // It's not worth changing to the error state just over a failed friendly name change.
-                let notification = NotificationType::GenericMessage {
-                    color: Color::Red,
-                    icon: "❌".to_string(),
+                let notification = NotificationType::Failure {
                     title: "Edit Failed".to_string(),
                     message: format!("Failed to change friendly name for {cloned_phone}"),
                 };
