@@ -339,18 +339,18 @@ impl MessagesView {
                 Constraint::Min(self.longest_item_lens.3),
             ],
         )
-            .header(header)
-            .row_highlight_style(selected_row_style)
-            .column_highlight_style(selected_col_style)
-            .cell_highlight_style(selected_cell_style)
-            .highlight_symbol(Text::from(vec![
-                Line::from(""),
-                Line::from(bar),
-                Line::from(bar),
-                Line::from(""),
-            ]))
-            .bg(theme.bg)
-            .highlight_spacing(HighlightSpacing::Always);
+        .header(header)
+        .row_highlight_style(selected_row_style)
+        .column_highlight_style(selected_col_style)
+        .cell_highlight_style(selected_cell_style)
+        .highlight_symbol(Text::from(vec![
+            Line::from(""),
+            Line::from(bar),
+            Line::from(bar),
+            Line::from(""),
+        ]))
+        .bg(theme.bg)
+        .highlight_spacing(HighlightSpacing::Always);
 
         frame.render_stateful_widget(t, area, &mut self.state);
     }

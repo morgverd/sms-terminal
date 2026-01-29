@@ -10,6 +10,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Clear, Paragraph, Wrap};
 use ratatui::Frame;
 use sms_client::types::modem::ModemStatusUpdateState;
+use sms_client::ws::events::WebsocketReconnectionKind;
 use std::time::{Duration, Instant};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -22,10 +23,7 @@ pub enum NotificationType {
         previous: ModemStatusUpdateState,
         current: ModemStatusUpdateState,
     },
-    WebSocketConnectionUpdate {
-        connected: bool,
-        reconnect: bool,
-    },
+    WebSocketConnectionUpdate(WebsocketReconnectionKind),
     Failure {
         title: String,
         message: String,
@@ -102,15 +100,15 @@ fn get_notification_style(notification: &NotificationMessage, theme: &Theme) -> 
                 title_color: color,
             }
         }
-        NotificationType::WebSocketConnectionUpdate {
-            connected,
-            reconnect,
-        } => {
-            let (icon, title, color) = match (connected, reconnect) {
-                (true, _) => ("🔗", "WebSocket Connected", Color::Green),
-                (false, true) => ("🔄", "WebSocket Reconnecting", Color::Yellow),
-                (false, false) => ("⚠️", "WebSocket Disconnected", Color::Red),
+        NotificationType::WebSocketConnectionUpdate(kind) => {
+            let (icon, title, color) = match kind {
+                WebsocketReconnectionKind::Connected => ("🔗", "WebSocket Connected", Color::Green),
+                WebsocketReconnectionKind::Disconnected(reconnecting) if *reconnecting => {
+                    ("🔄", "WebSocket Reconnecting", Color::Yellow)
+                }
+                _ => ("⚠️", "WebSocket Disconnected", Color::Red),
             };
+
             NotificationStyle {
                 icon: icon.to_string(),
                 title: title.into(),
@@ -282,14 +280,13 @@ impl NotificationsView {
                     Span::styled(current_state.to_string(), accent_style),
                 ]));
             }
-            NotificationType::WebSocketConnectionUpdate {
-                connected,
-                reconnect,
-            } => {
-                let status_text = match (connected, reconnect) {
-                    (true, _) => "WebSocket connection established",
-                    (false, true) => "WebSocket disconnected, attempting to reconnect...",
-                    (false, false) => "WebSocket connection lost",
+            NotificationType::WebSocketConnectionUpdate(kind) => {
+                let status_text = match kind {
+                    WebsocketReconnectionKind::Connected => "WebSocket connection established",
+                    WebsocketReconnectionKind::Disconnected(reconnecting) if *reconnecting => {
+                        "WebSocket disconnected, attempting to reconnect..."
+                    }
+                    _ => "WebSocket connection lost",
                 };
                 lines.push(Line::from(Span::styled(
                     status_text.to_string(),

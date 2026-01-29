@@ -66,7 +66,7 @@ impl PhonebookView {
     fn get_max_phone_length(&self) -> usize {
         self.recent_contacts
             .iter()
-            .map(|(phone, _)| phone.len())
+            .map(|pair| pair.number.len())
             .max()
             .unwrap_or(0)
     }
@@ -109,18 +109,19 @@ impl ViewBase for PhonebookView {
             }
             KeyCode::Char('e' | 'E') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 let selected = self.selected_contact?;
-                let (phone, name) = self.recent_contacts.get(selected)?;
+                let pair = self.recent_contacts.get(selected)?;
 
-                let mut ui = TextInputModal::new("Edit Friendly Name", format!("Name for {phone}"))
-                    .with_max_length(50);
+                let mut ui =
+                    TextInputModal::new("Edit Friendly Name", format!("Name for {}", pair.number))
+                        .with_max_length(50);
 
-                if let Some(existing) = name {
+                if let Some(existing) = &pair.friendly_name {
                     ui = ui.with_initial_value(existing);
                 }
 
                 // Include selected phone number in modal metadata for the response!
                 let modal = AppModal::new("edit_friendly_name", ui)
-                    .with_metadata(ModalMetadata::PhoneNumber(phone.clone()));
+                    .with_metadata(ModalMetadata::PhoneNumber(pair.number.clone()));
 
                 return Some(AppAction::SetModal(Some(modal)));
             }
@@ -128,7 +129,7 @@ impl ViewBase for PhonebookView {
                 let current_phone = self
                     .selected_contact
                     .and_then(|i| self.recent_contacts.get(i))
-                    .map(|(phone, _)| phone.clone());
+                    .map(|pair| pair.number.clone());
 
                 if let Some(current_phone) = current_phone {
                     self.input_buffer = current_phone;
@@ -250,12 +251,12 @@ impl ViewBase for PhonebookView {
                 .recent_contacts
                 .iter()
                 .enumerate()
-                .map(|(i, (phone, name))| {
-                    let content = if let Some(friendly_name) = name {
+                .map(|(i, pair)| {
+                    let content = if let Some(friendly_name) = &pair.friendly_name {
                         // Pad the phone number to align the separators
-                        format!("{phone:max_phone_length$} ｜ {friendly_name}")
+                        format!("{:max_phone_length$} ｜ {friendly_name}", pair.number)
                     } else {
-                        phone.to_string()
+                        pair.number.clone()
                     };
 
                     let style = if Some(i) == self.selected_contact {
@@ -290,7 +291,7 @@ impl ModalResponderComponent for PhonebookView {
         };
 
         let http_client = self.context.0.clone();
-        let cloned_phone = phone_number.to_string();
+        let cloned_phone = phone_number.clone();
         let cloned_name = friendly_name.clone();
         let sender = self.context.1.clone();
 
@@ -314,9 +315,9 @@ impl ModalResponderComponent for PhonebookView {
         if let Some(contact) = self
             .recent_contacts
             .iter_mut()
-            .find(|(p, _)| p == phone_number)
+            .find(|pair| &pair.number == phone_number)
         {
-            contact.1 = Some(friendly_name.to_string());
+            contact.friendly_name = Some(friendly_name.to_string());
         }
 
         Some(AppAction::SetModal(None))

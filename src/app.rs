@@ -4,6 +4,7 @@ use crossterm::event::{self, KeyCode, KeyEvent, KeyEventKind};
 use ratatui::DefaultTerminal;
 use sms_client::http::HttpClient;
 use sms_client::types::events::Event;
+use sms_client::ws::events::WebsocketEvent;
 use sms_client::Client;
 use std::sync::Arc;
 use std::time::Duration;
@@ -270,21 +271,16 @@ impl App {
         let ws_sender = self.message_sender.clone();
         self.sms_client
             .on_message_simple(move |message| match message {
-                Event::IncomingMessage(sms) | Event::OutgoingMessage(sms) => {
+                WebsocketEvent::Server(Event::IncomingMessage(sms))
+                | WebsocketEvent::Server(Event::OutgoingMessage(sms)) => {
                     let _ = ws_sender.send(AppAction::HandleMessage(sms));
                 }
-                Event::ModemStatusUpdate { previous, current } => {
+                WebsocketEvent::Server(Event::ModemStatusUpdate { previous, current }) => {
                     let notification = NotificationType::OnlineStatus { previous, current };
                     let _ = ws_sender.send(AppAction::ShowNotification(notification));
                 }
-                Event::WebsocketConnectionUpdate {
-                    connected,
-                    reconnect,
-                } => {
-                    let notification = NotificationType::WebSocketConnectionUpdate {
-                        connected,
-                        reconnect,
-                    };
+                WebsocketEvent::Reconnection(kind) => {
+                    let notification = NotificationType::WebSocketConnectionUpdate(kind);
                     let _ = ws_sender.send(AppAction::ShowNotification(notification));
                 }
                 _ => {}

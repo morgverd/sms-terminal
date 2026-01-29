@@ -7,7 +7,7 @@ use ratatui::widgets::{Block, BorderType, Clear, Paragraph};
 use ratatui::Frame;
 use sms_client::error::ClientError;
 use sms_client::types::http::{
-    HttpModemBatteryLevelResponse, HttpModemSignalStrengthResponse, HttpSmsDeviceInfoData,
+    HttpModemBatteryLevelResponse, HttpModemSignalStrengthResponse, HttpSmsDeviceInfoResponse,
 };
 
 use crate::app::AppContext;
@@ -19,7 +19,7 @@ use crate::ui::{centered_rect, ViewBase};
 
 pub struct DeviceInfoView {
     context: AppContext,
-    device_info: Option<HttpSmsDeviceInfoData>,
+    device_info: Option<HttpSmsDeviceInfoResponse>,
 }
 impl DeviceInfoView {
     pub fn with_context(context: AppContext) -> Self {
@@ -38,7 +38,7 @@ impl DeviceInfoView {
         } else if signal.rssi > 31 {
             100 // Cap at 100% for invalid values
         } else {
-            (f32::from(signal.rssi) / 31.0 * 100.0)
+            (signal.rssi as f32 / 31.0 * 100.0)
                 .clamp(0.0, 255.0)
                 .round() as u8
         }
@@ -147,7 +147,7 @@ impl DeviceInfoView {
         let bars = if signal_rssi == 0 {
             0
         } else {
-            ((f32::from(signal_rssi) / 31.0) * 5.0).ceil() as usize
+            ((signal_rssi as f32 / 31.0) * 5.0).ceil() as usize
         };
 
         let bar_heights = [1, 2, 3, 4, 5];
@@ -206,7 +206,7 @@ impl DeviceInfoView {
                 if signal.rssi == 99 {
                     0
                 } else {
-                    -113 + (i16::from(signal.rssi.min(31)) * 2)
+                    -113 + (signal.rssi.min(31) * 2)
                 }
             ),
             Style::default().fg(theme.text_muted),

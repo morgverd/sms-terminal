@@ -18,7 +18,7 @@ default = []
 sentry = ["dep:sentry", "dep:sentry-panic"]
 
 [dependencies]
-sms-client = { version = "2.0.0", features = ["http-tls-rustls", "websocket-tls-rustls"] }
+sms-client = { version = "3.1.0", features = ["http-tls-rustls", "websocket-tls-rustls"] }
 color-eyre = "0.6.3"
 crossterm = { version = "0.29.0", features = ["event-stream"] }
 ratatui = "0.30.0"

@@ -2769,9 +2769,9 @@ checksum = "b7c388c1b5e93756d0c740965c41e8822f866621d41acbdf6336a6a168f8840c"
 
 [[package]]
 name = "sms-client"
-version = "2.0.0"
+version = "3.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e836ccbd62d118bea5fcd669bfb01b6db3f57ee071df6db90de4bd9827be91a2"
+checksum = "4c793ac0ab31c8653f2105cfe8eaacd4faca63899a8a04b4123043240f116427"
 dependencies = [
  "futures-util",
  "http 1.4.0",
@@ -2814,9 +2814,9 @@ dependencies = [
 
 [[package]]
 name = "sms-types"
-version = "1.0.0"
+version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "92af55f4e45a8224ef4331940ea84f57d9b3608181371de4744564d9da55d217"
+checksum = "b0dfdb746b7c7c708b51ec28cbc5c132c67239f9b7fc022cceb180dbe08aa495"
 dependencies = [
  "serde",
  "serde_json",
